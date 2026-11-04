@@ -3,10 +3,57 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Rose Engine</title>
+    <title>Rose Engine: Guilloché Pattern Designer</title>
+    <meta name="description" content="Design guilloché patterns on a virtual rose engine lathe. Choose rosettes, watch a 3D machine cut them in ink or engraved metal, then export SVG, PNG or G-code." />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://rose-engine.balian.dev/" />
+    <meta name="theme-color" content="#0e0c0a" />
+    <meta name="color-scheme" content="dark" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Rose Engine" />
+    <meta property="og:title" content="Rose Engine: Guilloché Pattern Designer" />
+    <meta property="og:description" content="Set up rosettes and watch a 3D rose engine cut guilloché patterns in ink or metal. Random patterns, presets, and SVG, PNG and G-code export." />
+    <meta property="og:url" content="https://rose-engine.balian.dev/" />
+    <meta property="og:image" content="https://rose-engine.balian.dev/og.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The Rose Engine app: a 3D rose engine lathe beside a finished flame guilloché pattern." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Rose Engine: Guilloché Pattern Designer" />
+    <meta name="twitter:description" content="Set up rosettes and watch a 3D rose engine cut guilloché patterns in ink or metal. Export SVG, PNG or G-code." />
+    <meta name="twitter:image" content="https://rose-engine.balian.dev/og.jpg" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Rose Engine",
+        "url": "https://rose-engine.balian.dev/",
+        "description": "Design guilloché patterns on a virtual rose engine lathe. Choose rosettes, watch a 3D machine cut them in ink or engraved metal, then export SVG, PNG or G-code.",
+        "applicationCategory": "DesignApplication",
+        "operatingSystem": "Any (modern web browser with WebGL 2)",
+        "browserRequirements": "Requires JavaScript and WebGL 2",
+        "image": "https://rose-engine.balian.dev/og.jpg",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>
+    <noscript>
+      <h1>Rose Engine: Guilloché Pattern Designer</h1>
+      <p>
+        A rose engine lathe in the browser. Stack rosettes (cams), set the slide rest and chucks, and watch a 3D machine
+        cut the guilloché pattern in coloured ink or engraved metal. Generate random patterns, start from presets, and
+        export SVG, PNG, G-code or a shareable link.
+      </p>
+      <p>This app needs JavaScript and WebGL 2.</p>
+    </noscript>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

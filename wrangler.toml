@@ -7,4 +7,5 @@ workers_dev = false
 
 [assets]
 directory = "./dist"
-not_found_handling = "single-page-application"
+# Single page (state lives in the URL hash): unknown paths 404 instead of serving index.html as a soft duplicate.
+not_found_handling = "none"
