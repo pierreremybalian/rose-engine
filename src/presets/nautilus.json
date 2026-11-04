@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "name": "Nautilus",
+  "seed": 0,
+  "mode": "ink",
+  "machine": {
+    "rosetteRadius": 60,
+    "rubberRadius": 2,
+    "workDiameter": 100
+  },
+  "rosettes": [
+    {
+      "id": "a",
+      "enabled": true,
+      "axis": "rock",
+      "lobes": 6,
+      "amplitude": 0.9,
+      "profile": "sine",
+      "phase": 0
+    }
+  ],
+  "slide": {
+    "startRadius": 0,
+    "endRadius": 46,
+    "passes": 49,
+    "phaseMode": "linear",
+    "phaseStep": 1.2,
+    "alternateEvery": 1,
+    "alternateFraction": 0.5,
+    "phaseCustom": [
+      0
+    ],
+    "amplitudeTaper": 2,
+    "spiral": true
+  },
+  "eccentric": {
+    "enabled": false,
+    "offset": 0,
+    "angle": 0,
+    "divisions": 1,
+    "divisionStep": 0
+  },
+  "elliptical": {
+    "enabled": false,
+    "e": 0,
+    "angle": 0
+  },
+  "ink": {
+    "palette": [
+      "#e8d8a8",
+      "#c9a45c",
+      "#8fb8de"
+    ],
+    "colorMode": "gradient",
+    "paper": "#11131a",
+    "lineWidth": 0.2,
+    "opacity": 0.95
+  },
+  "metal": {
+    "material": "silver",
+    "toolAngle": 120,
+    "baseDepth": 0.08,
+    "lightAngle": 35,
+    "lightElevation": 40,
+    "enamel": false,
+    "enamelColor": "#1b3fa0",
+    "enamelOpacity": 0.45
+  }
+}

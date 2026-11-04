@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "name": "Blued Flame",
+  "seed": 0,
+  "mode": "metal",
+  "machine": {
+    "rosetteRadius": 60,
+    "rubberRadius": 0.8,
+    "workDiameter": 100
+  },
+  "rosettes": [
+    {
+      "id": "a",
+      "enabled": true,
+      "axis": "rock",
+      "lobes": 16,
+      "amplitude": 1.0,
+      "profile": "flame",
+      "phase": 0
+    },
+    {
+      "id": "b",
+      "enabled": true,
+      "axis": "rock",
+      "lobes": 48,
+      "amplitude": 0.15,
+      "profile": "sine",
+      "phase": 0
+    }
+  ],
+  "slide": {
+    "startRadius": 0,
+    "endRadius": 45,
+    "passes": 112,
+    "phaseMode": "linear",
+    "phaseStep": -0.35,
+    "alternateEvery": 1,
+    "alternateFraction": 0.5,
+    "phaseCustom": [
+      0
+    ],
+    "amplitudeTaper": 1.6,
+    "spiral": false
+  },
+  "eccentric": {
+    "enabled": false,
+    "offset": 0,
+    "angle": 0,
+    "divisions": 1,
+    "divisionStep": 0
+  },
+  "elliptical": {
+    "enabled": false,
+    "e": 0,
+    "angle": 0
+  },
+  "ink": {
+    "palette": [
+      "#1d2a5c",
+      "#2f6b4f",
+      "#7a2a3a"
+    ],
+    "colorMode": "single",
+    "paper": "#f4efe4",
+    "lineWidth": 0.22,
+    "opacity": 0.9
+  },
+  "metal": {
+    "material": "blued",
+    "toolAngle": 125,
+    "baseDepth": 0.125,
+    "lightAngle": 60,
+    "lightElevation": 35,
+    "enamel": false,
+    "enamelColor": "#1b3fa0",
+    "enamelOpacity": 0.45
+  }
+}

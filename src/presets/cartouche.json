@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "name": "Cartouche",
+  "seed": 0,
+  "mode": "metal",
+  "machine": {
+    "rosetteRadius": 60,
+    "rubberRadius": 1.5,
+    "workDiameter": 100
+  },
+  "rosettes": [
+    {
+      "id": "a",
+      "enabled": true,
+      "axis": "rock",
+      "lobes": 20,
+      "amplitude": 0.4,
+      "profile": "sine",
+      "phase": 0
+    }
+  ],
+  "slide": {
+    "startRadius": 16,
+    "endRadius": 38,
+    "passes": 56,
+    "phaseMode": "alternate",
+    "phaseStep": 0,
+    "alternateEvery": 1,
+    "alternateFraction": 0.5,
+    "phaseCustom": [
+      0
+    ],
+    "amplitudeTaper": 1,
+    "spiral": false
+  },
+  "eccentric": {
+    "enabled": false,
+    "offset": 0,
+    "angle": 0,
+    "divisions": 1,
+    "divisionStep": 0
+  },
+  "elliptical": {
+    "enabled": true,
+    "e": 8,
+    "angle": 0
+  },
+  "ink": {
+    "palette": [
+      "#1d2a5c",
+      "#2f6b4f",
+      "#7a2a3a"
+    ],
+    "colorMode": "single",
+    "paper": "#f4efe4",
+    "lineWidth": 0.22,
+    "opacity": 0.9
+  },
+  "metal": {
+    "material": "rose",
+    "toolAngle": 120,
+    "baseDepth": 0.14,
+    "lightAngle": 50,
+    "lightElevation": 40,
+    "enamel": false,
+    "enamelColor": "#1b3fa0",
+    "enamelOpacity": 0.45
+  }
+}

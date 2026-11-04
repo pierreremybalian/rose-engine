@@ -1,0 +1,103 @@
+@use '../tokens' as *;
+
+@layer components {
+  // Top bar: lacquer with a faint guilloché ground and an engraved double rule beneath.
+  .re-topbar {
+    position: relative;
+    background-color: var(--color-ink-900);
+    @include guilloche(4.5%, 4px, 260%);
+    @include double-rule(bottom);
+  }
+
+  // Control panel: a dark plate with an engraved rule along its right edge.
+  .re-panel {
+    background:
+      linear-gradient(180deg, rgb(255 236 200 / 0.018), transparent 240px),
+      var(--color-ink-900);
+    @include double-rule(right);
+  }
+
+  // Plate header (recipe name): a stronger guilloché field, like the cartouche on a dial.
+  .re-plate {
+    position: relative;
+    background-color: var(--color-ink-850);
+    @include guilloche(7%, 3px, 180%);
+    @include double-rule(bottom);
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 6px;
+      border: 1px solid var(--color-rule);
+      border-radius: 2px;
+      pointer-events: none;
+    }
+  }
+
+  .re-plate-name {
+    background: transparent;
+    outline: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.15s;
+
+    &:hover {
+      border-bottom-color: var(--color-rule);
+    }
+    &:focus-visible {
+      outline: none;
+      border-bottom-color: var(--color-brass-400);
+    }
+  }
+
+  // Section header button.
+  .re-sec-head {
+    transition: background-color 0.15s;
+
+    .re-sec-chevron {
+      transition: transform 0.25s var(--ease-escapement);
+    }
+    &[aria-expanded='false'] .re-sec-chevron {
+      transform: rotate(-90deg);
+    }
+    &:hover {
+      background: tint(--color-brass-400, 4%);
+    }
+    &:hover .re-sec-title {
+      color: var(--color-vellum);
+    }
+    &:focus-visible {
+      outline-offset: -2px;
+    }
+  }
+
+  .re-section + .re-section {
+    border-top: 1px solid var(--color-rule);
+    box-shadow: inset 0 1px 0 rgb(0 0 0 / 0.5);
+  }
+
+  // A field row: soft highlight while one of its controls has focus.
+  .re-field {
+    position: relative;
+    transition: background-color 0.2s;
+
+    &:focus-within {
+      background: linear-gradient(90deg, tint(--color-brass-400, 6%), transparent 80%);
+    }
+    &:focus-within::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 6px;
+      bottom: 6px;
+      width: 2px;
+      border-radius: 1px;
+      background: var(--color-brass-400);
+    }
+  }
+
+  // Drawer backdrop (mobile).
+  .re-scrim {
+    background: rgb(4 3 2 / 0.62);
+    backdrop-filter: blur(2px);
+  }
+}

@@ -1,0 +1,190 @@
+@use '../tokens' as *;
+
+@layer components {
+  // Inset well shared by number boxes, text inputs and selects.
+  %well {
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-plate);
+    background: var(--color-ink-950);
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.65);
+    color: var(--color-vellum);
+    transition:
+      border-color 0.15s,
+      background-color 0.15s;
+
+    &:hover {
+      border-color: var(--color-rule-strong);
+    }
+    &:focus-within {
+      border-color: var(--color-brass-500);
+      background: var(--color-ink-900);
+    }
+  }
+
+  // Number box: an <input> with a unit suffix inside one well.
+  .re-numbox {
+    @extend %well;
+
+    input {
+      appearance: textfield;
+      -moz-appearance: textfield;
+      background: transparent;
+      outline: none;
+      &::-webkit-outer-spin-button,
+      &::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+    }
+  }
+
+  .re-input {
+    @extend %well;
+    outline: none;
+    &::placeholder {
+      color: var(--color-ash);
+    }
+    &[aria-invalid='true'] {
+      border-color: var(--color-garnet);
+    }
+  }
+
+  textarea.re-input {
+    resize: vertical;
+    line-height: 1.5;
+  }
+
+  // Native select with an engraved chevron.
+  .re-select {
+    @extend %well;
+    appearance: none;
+    -webkit-appearance: none;
+    outline: none;
+    padding-right: 2rem;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--color-brass-400) 50%),
+      linear-gradient(135deg, var(--color-brass-400) 50%, transparent 50%);
+    background-position:
+      calc(100% - 15px) 52%,
+      calc(100% - 10px) 52%;
+    background-size:
+      5px 5px,
+      5px 5px;
+    background-repeat: no-repeat;
+    text-overflow: ellipsis;
+
+    &:focus-visible {
+      border-color: var(--color-brass-400);
+      @include focus-ring(1px);
+    }
+    option {
+      background: var(--color-ink-800);
+      color: var(--color-vellum);
+    }
+  }
+
+  // Labels that carry help get an engraved dotted underline.
+  .re-label[data-tip] {
+    text-decoration: underline dotted;
+    text-decoration-color: tint(--color-brass-400, 45%);
+    text-underline-offset: 4px;
+    text-decoration-thickness: 1px;
+    cursor: help;
+  }
+
+  // Native colour input styled as a set stone in a brass bezel.
+  .re-swatch {
+    appearance: none;
+    -webkit-appearance: none;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    cursor: pointer;
+    box-shadow:
+      0 0 0 1px rgb(0 0 0 / 0.7),
+      0 0 0 3px var(--color-brass-600),
+      0 0 0 4px rgb(0 0 0 / 0.5),
+      inset 0 0 0 1px rgb(255 255 255 / 0.12);
+    transition: box-shadow 0.15s;
+
+    &::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+    &::-webkit-color-swatch {
+      border: 0;
+      border-radius: 50%;
+    }
+    &::-moz-color-swatch {
+      border: 0;
+      border-radius: 50%;
+    }
+    &:hover {
+      box-shadow:
+        0 0 0 1px rgb(0 0 0 / 0.7),
+        0 0 0 3px var(--color-brass-400),
+        0 0 0 4px rgb(0 0 0 / 0.5);
+    }
+    &:focus-visible {
+      outline: none;
+      box-shadow:
+        0 0 0 1px rgb(0 0 0 / 0.7),
+        0 0 0 3px var(--color-brass-200),
+        0 0 0 6px tint(--color-brass-300, 35%);
+    }
+  }
+
+  // Palette chip: a miniature proof on its paper.
+  .re-chip {
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-plate);
+    background: var(--color-ink-850);
+    transition:
+      border-color 0.15s,
+      transform 0.15s var(--ease-escapement),
+      box-shadow 0.15s;
+
+    &:hover {
+      border-color: var(--color-rule-strong);
+      transform: translateY(-1px);
+    }
+    &[aria-pressed='true'] {
+      border-color: var(--color-brass-400);
+      box-shadow:
+        0 0 0 1px var(--color-brass-500),
+        0 6px 14px -8px rgb(0 0 0 / 0.9);
+    }
+  }
+
+  .re-chip-proof {
+    box-shadow:
+      inset 0 0 0 1px rgb(0 0 0 / 0.25),
+      inset 0 0 12px rgb(0 0 0 / 0.08);
+  }
+
+  // Metal material chips: polished-metal faces.
+  .re-metal {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.4),
+      inset 0 -1px 0 rgb(0 0 0 / 0.3),
+      0 0 0 1px rgb(0 0 0 / 0.6);
+  }
+  .re-metal--silver {
+    background: linear-gradient(160deg, #f4f4f2, #b9bab8 45%, #e9e9e6 60%, #8e8f8d);
+  }
+  .re-metal--gold {
+    background: linear-gradient(160deg, #fff0b8, #d4a83a 45%, #f3d67a 60%, #9a7420);
+  }
+  .re-metal--rose {
+    background: linear-gradient(160deg, #ffe3d6, #d08d74 45%, #f2c0a8 60%, #9c5d48);
+  }
+  .re-metal--brass {
+    background: linear-gradient(160deg, #f7e6b0, #c9a14d 45%, #e8cd85 60%, #8a6a2a);
+  }
+  .re-metal--steel {
+    background: linear-gradient(160deg, #dfe3e7, #8d949b 45%, #c6cbd0 60%, #5d646b);
+  }
+  .re-metal--blued {
+    background: linear-gradient(160deg, #8fb0e6, #2d4c9a 45%, #5f80cc 60%, #16265a);
+  }
+}

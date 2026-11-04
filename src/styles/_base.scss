@@ -1,0 +1,59 @@
+@use 'tokens' as *;
+
+@layer base {
+  ::selection {
+    background: tint(--color-brass-400, 35%);
+    color: var(--color-vellum);
+  }
+
+  :focus-visible {
+    @include focus-ring;
+  }
+
+  button,
+  [role='button'],
+  [role='switch'],
+  [role='radio'],
+  [role='tab'],
+  select,
+  summary {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  // Tabular figures everywhere numbers change under the eye.
+  .re-figures {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+}
+
+@layer components {
+  // Small-caps engraved label used for section titles and readout captions.
+  .re-caps {
+    font-family: var(--font-display);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+    font-variant-numeric: lining-nums;
+  }
+
+  .re-rule {
+    @include double-rule(bottom);
+  }
+  .re-rule-top {
+    @include double-rule(top);
+  }
+
+  // Hairline that fades out at both ends: section dividers, header flourishes.
+  .re-hairline {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--color-rule-strong) 18%, var(--color-rule-strong) 82%, transparent);
+  }
+  .re-hairline-r {
+    height: 1px;
+    background: linear-gradient(90deg, var(--color-rule-strong), transparent);
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "name": "Rosace",
+  "seed": 0,
+  "mode": "ink",
+  "machine": {
+    "rosetteRadius": 60,
+    "rubberRadius": 1,
+    "workDiameter": 100
+  },
+  "rosettes": [
+    {
+      "id": "a",
+      "enabled": true,
+      "axis": "rock",
+      "lobes": 24,
+      "amplitude": 0.6,
+      "profile": "sine",
+      "phase": 0
+    }
+  ],
+  "slide": {
+    "startRadius": 20,
+    "endRadius": 25,
+    "passes": 4,
+    "phaseMode": "alternate",
+    "phaseStep": 0,
+    "alternateEvery": 1,
+    "alternateFraction": 0.5,
+    "phaseCustom": [
+      0
+    ],
+    "amplitudeTaper": 1,
+    "spiral": false
+  },
+  "eccentric": {
+    "enabled": true,
+    "offset": 18,
+    "angle": 0,
+    "divisions": 12,
+    "divisionStep": 0
+  },
+  "elliptical": {
+    "enabled": false,
+    "e": 0,
+    "angle": 0
+  },
+  "ink": {
+    "palette": [
+      "#3a2d7a",
+      "#6a4fb3",
+      "#c2a3e8"
+    ],
+    "colorMode": "gradient",
+    "paper": "#f7f5fb",
+    "lineWidth": 0.2,
+    "opacity": 0.85
+  },
+  "metal": {
+    "material": "silver",
+    "toolAngle": 120,
+    "baseDepth": 0.08,
+    "lightAngle": 35,
+    "lightElevation": 40,
+    "enamel": false,
+    "enamelColor": "#1b3fa0",
+    "enamelOpacity": 0.45
+  }
+}

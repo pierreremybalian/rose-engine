@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "name": "Moiré Wave",
+  "seed": 0,
+  "mode": "ink",
+  "machine": {
+    "rosetteRadius": 60,
+    "rubberRadius": 2,
+    "workDiameter": 100
+  },
+  "rosettes": [
+    {
+      "id": "a",
+      "enabled": true,
+      "axis": "rock",
+      "lobes": 6,
+      "amplitude": 2.2,
+      "profile": "sine",
+      "phase": 0
+    }
+  ],
+  "slide": {
+    "startRadius": 0,
+    "endRadius": 46,
+    "passes": 126,
+    "phaseMode": "linear",
+    "phaseStep": 0.83,
+    "alternateEvery": 1,
+    "alternateFraction": 0.5,
+    "phaseCustom": [
+      0
+    ],
+    "amplitudeTaper": 1.2,
+    "spiral": false
+  },
+  "eccentric": {
+    "enabled": false,
+    "offset": 0,
+    "angle": 0,
+    "divisions": 1,
+    "divisionStep": 0
+  },
+  "elliptical": {
+    "enabled": false,
+    "e": 0,
+    "angle": 0
+  },
+  "ink": {
+    "palette": [
+      "#0d4f5c",
+      "#1f8a8a",
+      "#7fd1c1"
+    ],
+    "colorMode": "gradient",
+    "paper": "#f1f7f5",
+    "lineWidth": 0.11,
+    "opacity": 0.9
+  },
+  "metal": {
+    "material": "silver",
+    "toolAngle": 120,
+    "baseDepth": 0.08,
+    "lightAngle": 35,
+    "lightElevation": 40,
+    "enamel": false,
+    "enamelColor": "#1b3fa0",
+    "enamelOpacity": 0.45
+  }
+}

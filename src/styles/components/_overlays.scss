@@ -1,0 +1,148 @@
+@use '../tokens' as *;
+
+@layer components {
+  // Dropdown menu (presets).
+  .re-menu {
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 5px;
+    background: var(--color-ink-800);
+    box-shadow:
+      0 0 0 1px rgb(0 0 0 / 0.8),
+      0 24px 48px -16px rgb(0 0 0 / 0.95);
+    transform-origin: top left;
+    animation: re-pop-in 0.18s var(--ease-escapement);
+
+    [role='menuitem'] {
+      transition:
+        background-color 0.12s,
+        color 0.12s;
+
+      &:hover,
+      &:focus-visible {
+        outline: none;
+        color: var(--color-vellum);
+        background: linear-gradient(90deg, tint(--color-brass-400, 14%), tint(--color-brass-400, 3%));
+      }
+    }
+  }
+
+  // Floating tooltip (one per app, positioned from TS).
+  .re-tooltip {
+    position: fixed;
+    z-index: 80;
+    max-width: 260px;
+    padding: 7px 10px;
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 4px;
+    background: var(--color-ink-800);
+    color: var(--color-vellum-dim);
+    font: 400 12.5px/1.45 var(--font-sans);
+    box-shadow: 0 12px 28px -10px rgb(0 0 0 / 0.9);
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(3px);
+    transition:
+      opacity 0.14s,
+      transform 0.14s var(--ease-escapement);
+
+    &[data-show='true'] {
+      opacity: 1;
+      transform: none;
+    }
+    kbd {
+      margin-left: 6px;
+      padding: 1px 5px;
+      border: 1px solid var(--color-rule-strong);
+      border-radius: 3px;
+      color: var(--color-brass-300);
+      font: 500 11px/1.3 var(--font-mono);
+    }
+  }
+
+  // Toasts.
+  .re-toast {
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 5px;
+    background: var(--color-ink-800);
+    box-shadow:
+      0 0 0 1px rgb(0 0 0 / 0.7),
+      0 18px 40px -12px rgb(0 0 0 / 0.95);
+    animation: re-toast-in 0.3s var(--ease-escapement);
+
+    &[data-kind='error'] {
+      border-color: tint(--color-garnet, 60%);
+      .re-toast-pip {
+        background: var(--color-garnet);
+        box-shadow: 0 0 10px tint(--color-garnet, 70%);
+      }
+    }
+    &[data-kind='success'] .re-toast-pip {
+      background: var(--color-verdigris);
+      box-shadow: 0 0 10px tint(--color-verdigris, 60%);
+    }
+    &[data-leaving='true'] {
+      animation: re-toast-out 0.22s ease-in forwards;
+    }
+  }
+  .re-toast-pip {
+    background: var(--color-brass-300);
+    box-shadow: 0 0 10px tint(--color-brass-300, 60%);
+  }
+
+  // Thin brass scrollbars.
+  .re-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-ink-500) transparent;
+
+    &::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    &::-webkit-scrollbar-thumb {
+      border: 2px solid transparent;
+      border-radius: 8px;
+      background: var(--color-ink-600) padding-box;
+    }
+    &::-webkit-scrollbar-thumb:hover {
+      background: var(--color-brass-700) padding-box;
+    }
+  }
+
+  // Viewport frame: registration marks in the corners, like an engraver's plate.
+  .re-frame {
+    pointer-events: none;
+    box-shadow: inset 0 0 120px rgb(0 0 0 / 0.45);
+
+    > i {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border-color: var(--color-brass-500);
+      border-style: solid;
+      opacity: 0.55;
+    }
+    > i:nth-child(1) {
+      top: 10px;
+      left: 10px;
+      border-width: 1px 0 0 1px;
+    }
+    > i:nth-child(2) {
+      top: 10px;
+      right: 10px;
+      border-width: 1px 1px 0 0;
+    }
+    > i:nth-child(3) {
+      bottom: 10px;
+      left: 10px;
+      border-width: 0 0 1px 1px;
+    }
+    > i:nth-child(4) {
+      bottom: 10px;
+      right: 10px;
+      border-width: 0 1px 1px 0;
+    }
+  }
+}

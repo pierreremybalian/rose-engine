@@ -1,0 +1,3 @@
+// Re-state Tailwind's cascade-layer order. In a production bundle this sheet can land before Tailwind's
+// output, and the first mention of a layer fixes its rank. Without this, preflight (base) would beat components.
+@layer properties, theme, base, components, utilities;

@@ -1,0 +1,82 @@
+/* Tailwind entry + design tokens for the rose-engine UI.
+   Component styles that utilities can't express live in app.scss (SCSS reads these tokens as CSS variables). */
+@import url("https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..700&family=IBM+Plex+Mono:wght@400;500&family=Jost:wght@300..600&display=swap");
+@import "tailwindcss";
+
+@source "../ui";
+
+@theme static {
+  /* Type: a Didone display face (watch dials, banknote engraving) over a 1920s geometric sans. */
+  --font-display: "Bodoni Moda", "Bodoni 72", Didot, "Times New Roman", serif;
+  --font-sans: "Jost", Futura, "Century Gothic", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Warm blacks: lacquered workbench, oiled steel. */
+  --color-ink-950: #090806;
+  --color-ink-900: #0e0c0a;
+  --color-ink-850: #13110d;
+  --color-ink-800: #191612;
+  --color-ink-750: #201c16;
+  --color-ink-700: #29231c;
+  --color-ink-600: #383026;
+  --color-ink-500: #4c4234;
+
+  /* Brass, from polished highlight down to patinated shadow. */
+  --color-brass-100: #f7ecd2;
+  --color-brass-200: #eed9a8;
+  --color-brass-300: #e3c482;
+  --color-brass-400: #d3ac62;
+  --color-brass-500: #b88e46;
+  --color-brass-600: #936f33;
+  --color-brass-700: #6a4f25;
+  --color-brass-800: #3f2f17;
+
+  /* Text on dark: vellum and its shades. */
+  --color-vellum: #eee4d0;
+  --color-vellum-dim: #c0b39b;
+  --color-smoke: #8a7e6b;
+  --color-ash: #5f5647;
+
+  /* Hairline rules. */
+  --color-rule: rgb(211 172 98 / 0.15);
+  --color-rule-strong: rgb(211 172 98 / 0.32);
+
+  /* Signals. */
+  --color-garnet: #d0665c;
+  --color-verdigris: #78b39b;
+
+  --radius-plate: 3px;
+  --radius-knob: 999px;
+
+  --breakpoint-desk: 56.25rem; /* 900px: panel docks, drawer below */
+  --breakpoint-roomy: 73.75rem; /* 1180px */
+  --breakpoint-wide: 90rem; /* 1440px: every top-bar label */
+
+  --shadow-plate: inset 0 1px 0 rgb(255 236 200 / 0.04), 0 18px 40px -18px rgb(0 0 0 / 0.85);
+  --shadow-brass: inset 0 1px 0 rgb(255 245 220 / 0.55), inset 0 -1px 0 rgb(60 40 10 / 0.45), 0 1px 2px rgb(0 0 0 / 0.6);
+
+  --ease-escapement: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    background-color: var(--color-ink-950);
+    color: var(--color-vellum);
+    font-family: var(--font-sans);
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* A real rule in Tailwind's components layer keeps that layer in its proper slot (after base, before
+   utilities) when Tailwind optimizes for production. With an empty layer the optimizer hoists a bare
+   `@layer components;` above everything, which would let preflight override app.scss. */
+@layer components {
+  .re-app {
+    background-color: var(--color-ink-950);
+    font-feature-settings: 'kern', 'liga';
+  }
+}

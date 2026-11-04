@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "name": "Enamel Dial",
+  "seed": 0,
+  "mode": "metal",
+  "machine": {
+    "rosetteRadius": 60,
+    "rubberRadius": 1,
+    "workDiameter": 100
+  },
+  "rosettes": [
+    {
+      "id": "a",
+      "enabled": true,
+      "axis": "rock",
+      "lobes": 24,
+      "amplitude": 0.45,
+      "profile": "sine",
+      "phase": 0
+    },
+    {
+      "id": "p",
+      "enabled": true,
+      "axis": "pump",
+      "lobes": 6,
+      "amplitude": 0.08,
+      "profile": "sine",
+      "phase": 0
+    }
+  ],
+  "slide": {
+    "startRadius": 10,
+    "endRadius": 44,
+    "passes": 77,
+    "phaseMode": "alternate",
+    "phaseStep": 0,
+    "alternateEvery": 1,
+    "alternateFraction": 0.5,
+    "phaseCustom": [
+      0
+    ],
+    "amplitudeTaper": 1,
+    "spiral": false
+  },
+  "eccentric": {
+    "enabled": false,
+    "offset": 0,
+    "angle": 0,
+    "divisions": 1,
+    "divisionStep": 0
+  },
+  "elliptical": {
+    "enabled": false,
+    "e": 0,
+    "angle": 0
+  },
+  "ink": {
+    "palette": [
+      "#1d2a5c",
+      "#2f6b4f",
+      "#7a2a3a"
+    ],
+    "colorMode": "single",
+    "paper": "#f4efe4",
+    "lineWidth": 0.22,
+    "opacity": 0.9
+  },
+  "metal": {
+    "material": "silver",
+    "toolAngle": 120,
+    "baseDepth": 0.22,
+    "lightAngle": 35,
+    "lightElevation": 40,
+    "enamel": true,
+    "enamelColor": "#1b3fa0",
+    "enamelOpacity": 0.45
+  }
+}

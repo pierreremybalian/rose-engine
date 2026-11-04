@@ -1,0 +1,46 @@
+// Shared SCSS helpers. Colours always come from the Tailwind @theme tokens (CSS variables in main.css).
+
+@function tint($token, $pct) {
+  @return color-mix(in oklab, var(#{$token}) #{$pct}, transparent);
+}
+
+@mixin focus-ring($offset: 2px) {
+  outline: 1.5px solid var(--color-brass-300);
+  outline-offset: $offset;
+}
+
+// Machined brass face: a soft top highlight breaking to a darker lower half, like a turned and lapped part.
+$brass-face: linear-gradient(
+  180deg,
+  var(--color-brass-200) 0%,
+  var(--color-brass-300) 38%,
+  var(--color-brass-500) 62%,
+  var(--color-brass-400) 100%
+);
+
+// Two families of concentric hairlines from offset centres: the moiré reads as a guilloché ground.
+@mixin guilloche($alpha: 6%, $pitch: 5px, $y: 130%) {
+  background-image:
+    repeating-radial-gradient(
+      circle at 0% #{$y},
+      transparent 0 $pitch,
+      tint(--color-brass-400, $alpha) $pitch calc(#{$pitch} + 1px)
+    ),
+    repeating-radial-gradient(
+      circle at 100% #{$y},
+      transparent 0 $pitch,
+      tint(--color-brass-400, $alpha) $pitch calc(#{$pitch} + 1px)
+    );
+}
+
+// Engraved double rule: a lit hairline over a shadow hairline.
+@mixin double-rule($side: bottom) {
+  border-#{$side}: 1px solid var(--color-rule);
+  @if $side == bottom {
+    box-shadow: 0 1px 0 rgb(0 0 0 / 0.55);
+  } @else if $side == top {
+    box-shadow: 0 -1px 0 rgb(0 0 0 / 0.55);
+  } @else if $side == right {
+    box-shadow: 1px 0 0 rgb(0 0 0 / 0.55);
+  }
+}

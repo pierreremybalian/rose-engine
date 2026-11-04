@@ -1,0 +1,15 @@
+import { chromium } from 'playwright';
+const url = process.argv[2] || 'http://127.0.0.1:5173/';
+const b = await chromium.launch({ args: ['--use-angle=metal', '--enable-gpu'] });
+const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
+const errs = [];
+p.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errs.push(`${m.type()}: ${m.text()}`); });
+p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
+await p.goto(url);
+await p.waitForTimeout(4000);
+await p.screenshot({ path: 'dev/screenshots/app/01-boot.png' });
+await p.keyboard.press('r');
+await p.waitForTimeout(5000);
+await p.screenshot({ path: 'dev/screenshots/app/02-random-playing.png' });
+console.log(errs.slice(0, 20).join('\n') || 'no console errors');
+await b.close();

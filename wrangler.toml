@@ -1,0 +1,10 @@
+# Static deploy: Cloudflare Worker serving the Vite build (no server code). `npm run deploy` builds and ships it.
+name = "rose-engine"
+account_id = "51f39b9c1946569858d6ff3b2aac2baa"
+compatibility_date = "2026-11-01"
+routes = [{ pattern = "rose-engine.balian.dev", custom_domain = true }]
+workers_dev = false
+
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"

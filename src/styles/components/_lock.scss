@@ -1,0 +1,72 @@
+@use '../tokens' as *;
+
+// Lock toggle (aria-pressed). Holds two icons; CSS shows the open or shut padlock.
+@layer components {
+  .re-lock {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-plate);
+    color: var(--color-ash);
+    transition:
+      color 0.15s,
+      background-color 0.15s;
+
+    svg {
+      width: 14px;
+      height: 14px;
+      grid-area: 1 / 1;
+      transition:
+        opacity 0.15s,
+        transform 0.2s var(--ease-escapement);
+    }
+    .re-lock__shut {
+      opacity: 0;
+      transform: translateY(-2px);
+    }
+
+    &:hover {
+      color: var(--color-vellum-dim);
+      background: tint(--color-brass-400, 8%);
+    }
+
+    &[aria-pressed='true'] {
+      color: var(--color-brass-300);
+      background: tint(--color-brass-400, 13%);
+      box-shadow: inset 0 0 0 1px tint(--color-brass-400, 28%);
+
+      .re-lock__open {
+        opacity: 0;
+        transform: translateY(1px);
+      }
+      .re-lock__shut {
+        opacity: 1;
+        transform: none;
+        animation: re-lock-snap 0.28s var(--ease-escapement);
+      }
+    }
+
+    // Covered by the whole-stack lock: shown shut but quieter.
+    &[data-inherited='true'] {
+      color: var(--color-brass-600);
+      background: none;
+      box-shadow: none;
+
+      .re-lock__open {
+        opacity: 0;
+      }
+      .re-lock__shut {
+        opacity: 0.8;
+        transform: none;
+        animation: none;
+      }
+    }
+
+    &:focus-visible {
+      @include focus-ring(1px);
+    }
+  }
+}
