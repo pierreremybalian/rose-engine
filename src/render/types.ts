@@ -1,7 +1,7 @@
 // CONTRACT FILE — interfaces between the render module, the 3D machine module and main.ts.
 import type * as THREE from 'three';
 import type { Recipe } from '../state/recipe';
-import type { CameraPreset, Layout, WorkFrame } from '../state/store';
+import type { CameraPreset, Layout, Tilt, WorkFrame } from '../state/store';
 import type { Pose, Prepared, Toolpath } from '../engine/types';
 
 /**
@@ -44,7 +44,11 @@ export interface IRenderApp {
   setCameraPreset(preset: CameraPreset): void;
   /** Render the flat work view (current mode, fully revealed or current progress) at export size. */
   renderPNG(opts: PngOptions): Promise<Blob>;
-  /** Fit the flat view to the whole work disc. */
+  /** Fit the flat view to the whole work disc and level the plate. */
   resetWorkView(): void;
+  /** Base tilt of the plate in the work view, degrees (clamped to 40° in any direction). */
+  setTilt(tilt: Tilt): void;
+  /** Slow automatic rocking of the plate around the base tilt. */
+  setShimmer(on: boolean): void;
   dispose(): void;
 }

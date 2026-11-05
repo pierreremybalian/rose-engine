@@ -2,7 +2,7 @@
 // the UI never imports render/engine/export code directly.
 import type { GcodeOptions, GcodeResult, SvgOptions } from '../export/types';
 import type { PngOptions } from '../render/types';
-import type { CameraPreset } from '../state/store';
+import type { CameraPreset, Tilt } from '../state/store';
 
 export type MaybePromise<T> = T | Promise<T>;
 
@@ -46,5 +46,9 @@ export interface UIDeps {
 export interface MountedUI {
   /** Empty element for the WebGL canvas. Fills the central viewport. */
   workViewport: HTMLElement;
+  /** Controls that sit over the flat work view (the tilt pad); the renderer mounts them into its viewport. */
+  workControls: HTMLElement;
+  /** The plate tilt shown right now (moves every frame while shimmering). */
+  showTilt(t: Tilt): void;
   dispose(): void;
 }

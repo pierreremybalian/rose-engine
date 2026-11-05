@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { MIGRATIONS, parsePreset, serializePreset } from '../../src/export/preset';
 import { RECIPE_VERSION, defaultRecipe } from '../../src/state/recipe';
 import { randomRecipe } from '../../src/engine/random';
+import { V1_PRESET } from './fixtures';
 
 describe('serializePreset', () => {
   it('writes pretty JSON with a version', () => {
     const text = serializePreset(defaultRecipe());
-    expect(text).toContain('\n  "version": 1');
+    expect(text).toContain(`\n  "version": ${RECIPE_VERSION}`);
     expect(JSON.parse(text).version).toBe(RECIPE_VERSION);
   });
 
@@ -48,7 +49,7 @@ describe('parsePreset', () => {
     expect(r.machine.rubberRadius).toBe(12);
     expect(r.metal.baseDepth).toBe(0.4);
     expect(r.metal.lightAngle).toBe(330);
-    expect(r.rosettes[0].lobes).toBe(96);
+    expect(r.rosettes[0].lobes).toBe(300);
     expect(r.rosettes[0].amplitude).toBe(0);
     expect(r.rosettes[0].phase).toBe(5);
   });
@@ -116,10 +117,41 @@ describe('parsePreset', () => {
   });
 
   it('runs migrations up to the current version', () => {
-    // There is only v1 today; a missing or old version is treated as v1 and passes through.
-    expect(Object.keys(MIGRATIONS).length).toBe(0);
+    // A missing or old version is treated as v1 and migrated step by step.
+    expect(RECIPE_VERSION).toBe(2);
+    expect(Object.keys(MIGRATIONS).map(Number)).toEqual([1]);
     const r = parsePreset(JSON.stringify({ version: 0, slide: { passes: 3 } }));
     expect(r.version).toBe(RECIPE_VERSION);
     expect(r.slide.passes).toBe(3);
   });
+
+  it('migrates a v1 preset to v2: same design, Fill to edge off, symmetry free', () => {
+    const r = parsePreset(JSON.stringify(V1_PRESET));
+    expect(r.version).toBe(2);
+    expect(r.machine).toEqual({ ...V1_PRESET.machine, fillEdge: false });
+    expect(r.symmetry).toEqual({ order: 0, mirror: false });
+    expect(r.slide).toEqual(V1_PRESET.slide);
+    expect(r.rosettes).toEqual(V1_PRESET.rosettes);
+    expect(r.metal).toEqual(V1_PRESET.metal);
+    expect(r.ink).toEqual(V1_PRESET.ink);
+  });
+
+  it('the v1 → v2 step fills only what is missing', () => {
+    const m = MIGRATIONS[1];
+    expect(m({ version: 1, machine: { workDiameter: 40 } })).toEqual({ version: 2, machine: { workDiameter: 40, fillEdge: false }, symmetry: { order: 0, mirror: false } });
+    // A version-less hand-written file that already uses v2 fields keeps them.
+    const r = parsePreset(JSON.stringify({ machine: { fillEdge: true }, symmetry: { order: 12, mirror: true }, slide: { passes: 4 } }));
+    expect(r.machine.fillEdge).toBe(true);
+    expect(r.symmetry).toEqual({ order: 12, mirror: true });
+    // Garbage sections are still rejected, not papered over.
+    expect(() => parsePreset(JSON.stringify({ version: 1, machine: 5 }))).toThrow(/"machine" must be an object/);
+  });
+
+  it('clamps and validates the v2 fields', () => {
+    const r = parsePreset(JSON.stringify({ machine: { fillEdge: 'yes' }, symmetry: { order: 500.4, mirror: 1 } }));
+    expect(r.machine.fillEdge).toBe(false);
+    expect(r.symmetry).toEqual({ order: 96, mirror: false });
+    expect(parsePreset(JSON.stringify({ symmetry: { order: -3 } })).symmetry.order).toBe(0);
+  });
 });
+

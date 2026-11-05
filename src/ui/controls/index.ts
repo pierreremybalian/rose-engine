@@ -3,7 +3,8 @@ import type { Control, FieldCtx, FieldDef } from './field';
 import { numberControl } from './number';
 
 export type { Control, FieldCtx, FieldDef } from './field';
-export { lockButton, HINTS } from './field';
+export { lockButton, HINTS, shell } from './field';
+export { numberControl } from './number';
 export { segmented, switchButton, numberListControl } from './choice';
 
 /** Build the right control for a param type. `hintKey` picks fallback help text (rosette fields use their bare key). */

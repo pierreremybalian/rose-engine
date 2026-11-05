@@ -56,6 +56,9 @@ export function bindKeyboard(store: Store, deps: UIDeps, hooks: KeyHooks): () =>
     } else if (key === 'e') {
       e.preventDefault();
       hooks.openExport();
+    } else if (key === 't') {
+      e.preventDefault();
+      store.set({ shimmer: !store.get().shimmer });
     }
   };
   window.addEventListener('keydown', onKey);

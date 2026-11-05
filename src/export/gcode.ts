@@ -1,9 +1,12 @@
 // G-code export: pen plotter or CNC engraving. Strokes keep toolpath order; each closed loop starts at the
 // sample nearest the previous end and closes back to its own start. Numbers are fixed 3 decimals.
+// Paths are clipped at the plate edge: where a pass crosses the rim the pen lifts (or the cutter retracts to
+// safe Z) and travels to where it comes back onto the plate. Lengths, time and bounds are the clipped paths'.
 import type { Recipe } from '../state/recipe';
-import type { Pass, Toolpath } from '../engine/types';
+import type { Toolpath } from '../engine/types';
 import type { GcodeOptions, GcodeResult } from './types';
-import { keptIndices, sampleBounds } from './svg';
+import type { ClipStroke } from './clip';
+import { clippedStrokes, keptStrokeIndices, strokeBounds } from './svg';
 
 /** Rapid travel speed used for the time estimate, mm/min. */
 export const RAPID_RATE = 3000;
@@ -96,16 +99,16 @@ function refineZ(
 }
 
 /** Visiting order of sample indices for one stroke (closed loops rotated and closed back to their start). */
-function strokeOrder(tp: Toolpath, pass: Pass, kept: number[], px: number, py: number): number[] {
-  const { x, y } = tp;
+function strokeOrder(st: ClipStroke, kept: number[], px: number, py: number): number[] {
+  const { x, y } = st;
   const finite = kept.filter((i) => Number.isFinite(x[i]) && Number.isFinite(y[i]));
-  if (!pass.closed || finite.length < 2) return finite;
+  if (!st.closed || finite.length < 2) return finite;
 
   // Nearest sample of the whole loop (not just the kept ones) to the previous end.
   let best = -1;
   let bestD = Infinity;
-  const end = pass.start + pass.count;
-  for (let i = pass.start; i < end; i++) {
+  const end = st.start + st.count;
+  for (let i = st.start; i < end; i++) {
     const dx = x[i] - px;
     const dy = y[i] - py;
     const d = dx * dx + dy * dy;
@@ -129,21 +132,16 @@ function strokeOrder(tp: Toolpath, pass: Pass, kept: number[], px: number, py: n
 
 export function buildGcode(recipe: Recipe, toolpath: Toolpath, opts: GcodeOptions): GcodeResult {
   const cnc = opts.profile === 'cnc';
-  const tp = toolpath;
   const tol = opts.tolerance;
+  const strokes = clippedStrokes(recipe, toolpath).flatMap((c) => c.strokes);
 
-  // Output frame: 'center' keeps work coordinates, 'corner' puts the min corner of the samples at X0 Y0.
-  const sb = sampleBounds(tp);
+  // Output frame: 'center' keeps work coordinates, 'corner' puts the min corner of the (clipped) paths at X0 Y0.
+  const sb = strokeBounds(strokes);
   const shiftX = opts.origin === 'corner' && sb ? sb.minX : 0;
   const shiftY = opts.origin === 'corner' && sb ? sb.minY : 0;
 
   const baseDepth = recipe.metal.baseDepth;
   const depthScale = opts.depthScale;
-  const zs = tp.z;
-  const zAt = (i: number): number => {
-    const zi = zs ? zs[i] : 0;
-    return -depthScale * Math.max(0, baseDepth + (Number.isFinite(zi) ? zi : 0));
-  };
 
   // A depth error dz moves each groove edge by dz·tan(angle/2): keep that within the XY tolerance.
   const zTol = tol / Math.max(1, Math.tan(((recipe.metal.toolAngle * Math.PI) / 180) / 2));
@@ -160,7 +158,7 @@ export function buildGcode(recipe: Recipe, toolpath: Toolpath, opts: GcodeOption
   let plungeLength = 0;
   let retractLength = 0;
   let penMoves = 0;
-  let strokes = 0;
+  let strokeCount = 0;
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -175,16 +173,21 @@ export function buildGcode(recipe: Recipe, toolpath: Toolpath, opts: GcodeOption
   let px = shiftX; // previous position, work coordinates
   let py = shiftY;
 
-  for (const pass of tp.passes) {
-    let kept = keptIndices(tp, pass, tol);
-    if (cnc && tol > 0) kept = refineZ(kept, zAt, pass.start, pass.count, pass.closed, zTol);
-    const order = strokeOrder(tp, pass, kept, px, py);
+  for (const st of strokes) {
+    const zs = st.z;
+    const zAt = (i: number): number => {
+      const zi = zs ? zs[i] : 0;
+      return -depthScale * Math.max(0, baseDepth + (Number.isFinite(zi) ? zi : 0));
+    };
+    let kept = keptStrokeIndices(st, tol);
+    if (cnc && tol > 0) kept = refineZ(kept, zAt, st.start, st.count, st.closed, zTol);
+    const order = strokeOrder(st, kept, px, py);
     if (order.length === 0) continue;
-    strokes += 1;
+    strokeCount += 1;
 
     const i0 = order[0];
-    const x0 = tp.x[i0];
-    const y0 = tp.y[i0];
+    const x0 = st.x[i0];
+    const y0 = st.y[i0];
     travelLength += Math.hypot(x0 - px, y0 - py);
     let lx = fmtG(x0 - shiftX);
     let ly = fmtG(y0 - shiftY);
@@ -211,8 +214,8 @@ export function buildGcode(recipe: Recipe, toolpath: Toolpath, opts: GcodeOption
     let qy = y0;
     for (let k = 1; k < order.length; k++) {
       const i = order[k];
-      const ox = tp.x[i] - shiftX;
-      const oy = tp.y[i] - shiftY;
+      const ox = st.x[i] - shiftX;
+      const oy = st.y[i] - shiftY;
       const sx = fmtG(ox);
       const sy = fmtG(oy);
       let line: string;
@@ -234,9 +237,9 @@ export function buildGcode(recipe: Recipe, toolpath: Toolpath, opts: GcodeOption
       body.push(line);
       lx = sx;
       ly = sy;
-      drawLength += Math.hypot(tp.x[i] - qx, tp.y[i] - qy);
-      qx = tp.x[i];
-      qy = tp.y[i];
+      drawLength += Math.hypot(st.x[i] - qx, st.y[i] - qy);
+      qx = st.x[i];
+      qy = st.y[i];
       if (ox < minX) minX = ox;
       if (ox > maxX) maxX = ox;
       if (oy < minY) minY = oy;
@@ -276,7 +279,7 @@ export function buildGcode(recipe: Recipe, toolpath: Toolpath, opts: GcodeOption
       `; name: ${asciiComment(recipe.name) || 'untitled'}`,
       `; seed: ${recipe.seed}`,
       `; mode: ${recipe.mode}, profile: ${opts.profile}, origin: ${opts.origin}`,
-      `; strokes: ${strokes}, tolerance: ${fmtG(tol)} mm, feed: ${fmtRate(opts.feedRate)} mm/min`,
+      `; strokes: ${strokeCount}, tolerance: ${fmtG(tol)} mm, feed: ${fmtRate(opts.feedRate)} mm/min`,
     ];
     if (cnc) {
       c.push(

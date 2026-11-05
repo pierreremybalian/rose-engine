@@ -2,6 +2,7 @@
 import { PALETTES } from '../state/params';
 import type { AppState, Store } from '../state/store';
 import { h, uid } from './dom';
+import { editRecipe } from './edit';
 import { icon } from './icons';
 import { HINTS, lockButton, type Control } from './controls';
 
@@ -61,7 +62,7 @@ export function paletteControl(store: Store): Control {
         'aria-pressed': 'false',
         'aria-label': `${p.name} palette`,
         onClick: () =>
-          store.setRecipe((d) => {
+          editRecipe(store, (d) => {
             d.ink.palette = [...p.colors];
             d.ink.paper = p.paper;
           }),
@@ -94,7 +95,8 @@ export function paletteControl(store: Store): Control {
       const input = h('input', { id, type: 'color', value: c, class: 're-swatch size-7', 'aria-label': `Ink ${i + 1}` });
       input.addEventListener('input', () => {
         picking = true;
-        store.setRecipe(
+        editRecipe(
+          store,
           (d) => {
             d.ink.palette[i] = input.value;
           },
@@ -116,7 +118,7 @@ export function paletteControl(store: Store): Control {
               'aria-label': `Remove ink ${i + 1}`,
               'data-tip': 'Remove ink',
               onClick: () =>
-                store.setRecipe((d) => {
+                editRecipe(store, (d) => {
                   d.ink.palette.splice(i, 1);
                 }),
             },
@@ -137,7 +139,7 @@ export function paletteControl(store: Store): Control {
           'data-tip': 'Add ink',
           'data-add-ink': true,
           onClick: () =>
-            store.setRecipe((d) => {
+            editRecipe(store, (d) => {
               const pool = PALETTES.flatMap((p) => p.colors);
               const next = pool.find((c) => !d.ink.palette.some((x) => same(x, c))) ?? '#888888';
               d.ink.palette.push(next);

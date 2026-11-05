@@ -1,12 +1,13 @@
 {
-  "version": 1,
+  "version": 2,
   "name": "Cartouche",
   "seed": 0,
   "mode": "metal",
   "machine": {
     "rosetteRadius": 60,
     "rubberRadius": 1.5,
-    "workDiameter": 100
+    "workDiameter": 100,
+    "fillEdge": false
   },
   "rosettes": [
     {
@@ -14,7 +15,7 @@
       "enabled": true,
       "axis": "rock",
       "lobes": 20,
-      "amplitude": 0.4,
+      "amplitude": 0.2,
       "profile": "sine",
       "phase": 0
     }
@@ -59,11 +60,15 @@
   "metal": {
     "material": "rose",
     "toolAngle": 120,
-    "baseDepth": 0.14,
+    "baseDepth": 0.26,
     "lightAngle": 50,
     "lightElevation": 40,
     "enamel": false,
     "enamelColor": "#1b3fa0",
     "enamelOpacity": 0.45
+  },
+  "symmetry": {
+    "order": 2,
+    "mirror": true
   }
 }

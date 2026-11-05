@@ -1,12 +1,13 @@
 {
-  "version": 1,
+  "version": 2,
   "name": "Basket Weave",
   "seed": 0,
   "mode": "metal",
   "machine": {
     "rosetteRadius": 60,
     "rubberRadius": 2,
-    "workDiameter": 100
+    "workDiameter": 100,
+    "fillEdge": false
   },
   "rosettes": [
     {
@@ -58,12 +59,16 @@
   },
   "metal": {
     "material": "gold",
-    "toolAngle": 120,
-    "baseDepth": 0.155,
+    "toolAngle": 135,
+    "baseDepth": 0.375,
     "lightAngle": 40,
     "lightElevation": 38,
     "enamel": false,
     "enamelColor": "#1b3fa0",
     "enamelOpacity": 0.45
+  },
+  "symmetry": {
+    "order": 12,
+    "mirror": true
   }
 }

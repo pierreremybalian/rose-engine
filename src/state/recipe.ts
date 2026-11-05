@@ -1,9 +1,9 @@
 // CONTRACT FILE — shared by every module. Change only with care; other code depends on these shapes.
 // All lengths are millimetres, all user-facing angles are degrees.
 
-export const RECIPE_VERSION = 1;
+export const RECIPE_VERSION = 2;
 
-export type ProfileKind = 'sine' | 'convex' | 'concave' | 'flame' | 'square' | 'saw';
+export type ProfileKind = 'sine' | 'convex' | 'concave' | 'flame' | 'square' | 'saw' | 'triangle';
 /** 'rock' = rosette pushes the headstock sideways (radial modulation of the cut).
  *  'pump' = face rosette pushes the headstock along the spindle axis (depth / pen-width modulation). */
 export type RosetteAxis = 'rock' | 'pump';
@@ -29,6 +29,9 @@ export interface MachineSettings {
   rubberRadius: number;
   /** Diameter of the workpiece (dial / paper disc), mm. */
   workDiameter: number;
+  /** Run the cut out past the plate edge so the whole plate is engraved. The engine then ignores
+   *  slide.endRadius and uses effectiveEndRadius() (src/engine/plate.ts); everything is clipped at the plate edge. */
+  fillEdge: boolean;
 }
 
 export type PhaseMode = 'linear' | 'alternate' | 'custom';
@@ -75,6 +78,16 @@ export interface EllipticalChuck {
   angle: number;
 }
 
+/** Pattern symmetry constraint. Enforced by enforceSymmetry() (src/engine/symmetry.ts) on UI edits and Random/Mutate. */
+export interface Symmetry {
+  /** 0 = free (readout only). N >= 2 = N-fold rotational symmetry: lobe counts are multiples of N; eccentric
+   *  divisions are evenly spaced and divide N on centred work, or are a multiple of N when the work is off-centre. */
+  order: number;
+  /** Mirror symmetry about the 12-6 axis: symmetric profiles, peaks on 12 o'clock (phase ≡ 270 mod 360/lobes),
+   *  no twisting phase drift. */
+  mirror: boolean;
+}
+
 export type ColorMode = 'single' | 'cycle' | 'gradient';
 
 export interface InkSettings {
@@ -119,6 +132,7 @@ export interface Recipe {
   elliptical: EllipticalChuck;
   ink: InkSettings;
   metal: MetalSettings;
+  symmetry: Symmetry;
 }
 
 let idCounter = 0;
@@ -147,7 +161,7 @@ export function defaultRecipe(): Recipe {
     name: 'Barleycorn',
     seed: 0,
     mode: 'ink',
-    machine: { rosetteRadius: 60, rubberRadius: 2, workDiameter: 100 },
+    machine: { rosetteRadius: 60, rubberRadius: 2, workDiameter: 100, fillEdge: false },
     rosettes: [defaultRosette({ id: 'r0' })],
     slide: {
       startRadius: 0,
@@ -180,6 +194,7 @@ export function defaultRecipe(): Recipe {
       enamelColor: '#1b3fa0',
       enamelOpacity: 0.6,
     },
+    symmetry: { order: 0, mirror: false },
   };
 }
 

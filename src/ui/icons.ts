@@ -30,6 +30,8 @@ const PATHS = {
   camera: '<circle cx="12" cy="12" r="3"/><path d="M3 12s3.5-6.5 9-6.5S21 12 21 12s-3.5 6.5-9 6.5S3 12 3 12Z"/>',
   ink: '<path d="M12 3.5c3 4 5.5 7 5.5 10a5.5 5.5 0 0 1-11 0c0-3 2.5-6 5.5-10Z"/>',
   metal: '<path d="M12 3 20 8v8l-8 5-8-5V8z"/><path d="m12 3v18M4 8l16 8M20 8 4 16" stroke-opacity=".45"/>',
+  shimmer:
+    '<path d="M10.5 4c.5 4.2 2.1 5.9 6 6.5-3.9.6-5.5 2.3-6 6.5-.5-4.2-2.1-5.9-6-6.5 3.9-.6 5.5-2.3 6-6.5Z"/><path d="M18 14.5c.2 1.7.9 2.4 2.5 2.7-1.6.3-2.3 1-2.5 2.8-.2-1.8-.9-2.5-2.5-2.8 1.6-.3 2.3-1 2.5-2.7Z" fill="currentColor" stroke="none"/>',
 } as const;
 
 export type IconName = keyof typeof PATHS;

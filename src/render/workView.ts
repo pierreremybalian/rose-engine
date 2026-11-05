@@ -1,7 +1,13 @@
-// Orthographic flat work view: camera state plus wheel-zoom-around-cursor, drag pan, pinch and double-click reset.
+// Flat work view: orthographic camera state plus wheel-zoom-around-cursor, drag pan, pinch and double-click
+// reset; Shift-drag or right-drag tilts the plate. While tilted, pan and zoom keep the plate point under the
+// cursor fixed on the tilted plate (see TiltProjection).
 import * as THREE from 'three';
+import type { Tilt } from '../state/store';
+import { clampTilt, isTilted, TiltProjection, type Pt } from './tilt';
 
 const FIT_MARGIN = 1.08;
+/** Degrees of tilt per CSS pixel of Shift/right drag. */
+const TILT_PER_PX = 0.25;
 
 export class WorkView {
   readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 1000);
@@ -15,15 +21,26 @@ export class WorkView {
   height = 1;
   /** True until the user pans/zooms: resizes and diameter changes refit. */
   fitted = true;
+  /** Plate tilt currently shown (degrees). */
+  readonly tilt: Tilt = { x: 0, y: 0 };
+  /** Perspective model of the tilted plate; kept in sync with the view, tilt and work centre. */
+  readonly proj = new TiltProjection();
   private diameter = 100;
+  private workX = 0;
+  private workY = 0;
   private pointers = new Map<number, { x: number; y: number }>();
   private pinch: { dist: number; mx: number; my: number } | null = null;
+  private tiltDrag: { id: number; x: number; y: number; tx: number; ty: number } | null = null;
+  private readonly tmpA: Pt = { x: 0, y: 0 };
+  private readonly tmpB: Pt = { x: 0, y: 0 };
   private readonly listeners: [string, EventListener, AddEventListenerOptions?][] = [];
 
   constructor(
     private readonly el: HTMLElement,
     private readonly onChange: () => void,
     private readonly onReset: () => void,
+    /** The user grabbed or moved the tilt (Shift/right drag). */
+    private readonly onTiltInput: (t: Tilt) => void = () => {},
   ) {
     this.camera.position.set(0, 0, 100);
     this.listen('wheel', this.onWheel as EventListener, { passive: false });
@@ -35,8 +52,33 @@ export class WorkView {
       e.preventDefault();
       this.onReset();
     }) as EventListener);
+    // right-drag tilts, so no context menu over the work
+    this.listen('contextmenu', ((e: MouseEvent) => e.preventDefault()) as EventListener);
     el.style.cursor = 'grab';
     el.style.touchAction = 'none';
+  }
+
+  get tilted(): boolean {
+    return isTilted(this.tilt);
+  }
+
+  /** Shown tilt (degrees). Does not notify: the owner re-renders. */
+  setTilt(x: number, y: number): void {
+    this.tilt.x = x;
+    this.tilt.y = y;
+    this.syncProj();
+  }
+
+  /** Work centre in the display frame (moves with the work in the machine frame). */
+  setWorkCentre(x: number, y: number): void {
+    if (x === this.workX && y === this.workY) return;
+    this.workX = x;
+    this.workY = y;
+    this.syncProj();
+  }
+
+  private syncProj(): void {
+    this.proj.set(this, this.tilt, this.workX, this.workY, this.diameter);
   }
 
   get pxPerMm(): number {
@@ -52,10 +94,8 @@ export class WorkView {
 
   setDiameter(d: number): void {
     this.diameter = d > 0 ? d : 100;
-    if (this.fitted) {
-      this.fitValues();
-      this.updateCamera();
-    }
+    if (this.fitted) this.fitValues();
+    this.updateCamera();
   }
 
   fit(): void {
@@ -82,6 +122,49 @@ export class WorkView {
     c.position.set(this.cx, this.cy, 100);
     c.updateProjectionMatrix();
     c.updateMatrixWorld();
+    this.syncProj();
+  }
+
+  /**
+   * Tilted pan/zoom: move the view centre so the plate point `target` shows under screen point (sx, sy).
+   * Newton steps on the (nearly linear) screen → plate map. False if the cursor ray misses the plate.
+   */
+  private holdPlatePoint(sx: number, sy: number, target: Pt): boolean {
+    const p = this.tmpA;
+    const q = this.tmpB;
+    const tol = 1e-6 * this.mmPerPx;
+    for (let it = 0; it < 6; it++) {
+      this.syncProj();
+      if (!this.proj.screenToPlate(sx, sy, p)) return false;
+      const fx = p.x - target.x;
+      const fy = p.y - target.y;
+      if (Math.abs(fx) + Math.abs(fy) < tol) break;
+      const h = this.mmPerPx;
+      this.cx += h;
+      this.syncProj();
+      const okX = this.proj.screenToPlate(sx, sy, q);
+      const a11 = (q.x - p.x) / h;
+      const a21 = (q.y - p.y) / h;
+      this.cx -= h;
+      this.cy += h;
+      this.syncProj();
+      const okY = this.proj.screenToPlate(sx, sy, q);
+      const a12 = (q.x - p.x) / h;
+      const a22 = (q.y - p.y) / h;
+      this.cy -= h;
+      const det = a11 * a22 - a12 * a21;
+      if (!okX || !okY || !(Math.abs(det) > 1e-12)) return false;
+      this.cx -= (a22 * fx - a12 * fy) / det;
+      this.cy -= (-a21 * fx + a11 * fy) / det;
+    }
+    return true;
+  }
+
+  /** Plate point under a screen point while tilted (null when flat or the ray misses). */
+  private plateAt(sx: number, sy: number): Pt | null {
+    if (!this.tilted) return null;
+    const p = { x: 0, y: 0 };
+    return this.proj.screenToPlate(sx, sy, p) ? p : null;
   }
 
   /** Device px per CSS px of the overlay element. */
@@ -100,12 +183,15 @@ export class WorkView {
     const minMm = 2e-5;
     const maxMm = (this.diameter * 4) / Math.min(this.width, this.height);
     const next = THREE.MathUtils.clamp(this.mmPerPx / factor, minMm, maxMm);
+    const held = this.plateAt(px, py);
     // display-frame point under the cursor stays put
     const wx = this.cx + (px - this.width / 2) * this.mmPerPx;
     const wy = this.cy - (py - this.height / 2) * this.mmPerPx;
     this.mmPerPx = next;
     this.cx = wx - (px - this.width / 2) * next;
     this.cy = wy + (py - this.height / 2) * next;
+    // tilted: the plate point under the cursor stays put instead
+    if (held) this.holdPlatePoint(px, py, held);
     this.fitted = false;
     this.updateCamera();
     this.onChange();
@@ -127,6 +213,15 @@ export class WorkView {
   };
 
   private onPointerDown = (e: PointerEvent): void => {
+    if (e.pointerType !== 'touch' && !this.tiltDrag && (e.button === 2 || (e.button === 0 && e.shiftKey))) {
+      e.preventDefault();
+      this.el.setPointerCapture(e.pointerId);
+      this.tiltDrag = { id: e.pointerId, x: e.clientX, y: e.clientY, tx: this.tilt.x, ty: this.tilt.y };
+      this.el.style.cursor = 'move';
+      // grabbing the tilt takes it over from the shimmer, from wherever the plate is right now
+      this.onTiltInput({ x: this.tilt.x, y: this.tilt.y });
+      return;
+    }
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     this.el.setPointerCapture(e.pointerId);
     this.pointers.set(e.pointerId, this.local(e));
@@ -135,12 +230,22 @@ export class WorkView {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
+    const td = this.tiltDrag;
+    if (td && td.id === e.pointerId) {
+      // drag right → the plate turns to face right; drag up → it faces up (a trackball under the hand)
+      const t = clampTilt({ x: td.tx + (e.clientY - td.y) * TILT_PER_PX, y: td.ty + (e.clientX - td.x) * TILT_PER_PX });
+      this.onTiltInput(t);
+      return;
+    }
     const prev = this.pointers.get(e.pointerId);
     if (!prev) return;
     const p = this.local(e);
     if (this.pointers.size === 1) {
+      const held = this.plateAt(prev.x, prev.y);
       this.cx -= (p.x - prev.x) * this.mmPerPx;
       this.cy += (p.y - prev.y) * this.mmPerPx;
+      // tilted: drag within the plate plane, the grabbed plate point following the pointer
+      if (held) this.holdPlatePoint(p.x, p.y, held);
       this.pointers.set(e.pointerId, p);
       this.fitted = false;
       this.updateCamera();
@@ -150,14 +255,22 @@ export class WorkView {
     this.pointers.set(e.pointerId, p);
     const now = this.pinchState();
     if (this.pinch && now) {
+      const held = this.plateAt(this.pinch.mx, this.pinch.my);
       this.cx -= (now.mx - this.pinch.mx) * this.mmPerPx;
       this.cy += (now.my - this.pinch.my) * this.mmPerPx;
+      if (held) this.holdPlatePoint(now.mx, now.my, held);
       this.zoomAt(now.mx, now.my, now.dist / Math.max(1, this.pinch.dist));
     }
     this.pinch = now;
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    if (this.tiltDrag?.id === e.pointerId) {
+      this.tiltDrag = null;
+      if (this.el.hasPointerCapture(e.pointerId)) this.el.releasePointerCapture(e.pointerId);
+      if (this.pointers.size === 0) this.el.style.cursor = 'grab';
+      return;
+    }
     this.pointers.delete(e.pointerId);
     if (this.el.hasPointerCapture(e.pointerId)) this.el.releasePointerCapture(e.pointerId);
     this.pinch = this.pointers.size === 2 ? this.pinchState() : null;

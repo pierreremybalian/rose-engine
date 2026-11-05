@@ -11,10 +11,13 @@
 //   radius and taper ramp linearly in q (start -> end over q = 0..passes). Linear phase drifts
 //   continuously (q * phaseStep). Alternate/custom phases step at revolution boundaries, blended with a
 //   smoothstep over the first lobe of the new revolution so the open path stays continuous.
+// - End radius: every path (concentric and spiral) runs to effectiveEndRadius(recipe) (src/engine/plate.ts):
+//   slide.endRadius, or with machine.fillEdge the radius that carries the last pass past the plate rim.
 import type { ProfileKind, Recipe } from '../state/recipe';
 import type { Pass, Pose, Prepared, Toolpath } from './types';
 import { buildRubberTable, profileValue, sampleTable, RUBBER_TABLE_SIZE } from './rosette';
 import { makeChuckXform, toolToWork, workPlacementXf, type ChuckXform } from './chucks';
+import { effectiveEndRadius } from './plate';
 
 const TAU = Math.PI * 2;
 
@@ -158,7 +161,7 @@ export function prepare(recipe: Recipe, opts: PrepareOptions = {}): EnginePrepar
     divisions: xf.divisions,
     spiral,
     startR: num(s.startRadius, 0),
-    endR: num(s.endRadius, 0),
+    endR: num(effectiveEndRadius(recipe), num(s.endRadius, 0)),
     taperEnd: num(s.amplitudeTaper, 1),
     phaseMode: s.phaseMode,
     phaseStep: num(s.phaseStep, 0),

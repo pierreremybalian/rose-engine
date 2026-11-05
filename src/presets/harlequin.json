@@ -1,12 +1,13 @@
 {
-  "version": 1,
+  "version": 2,
   "name": "Harlequin",
   "seed": 0,
   "mode": "ink",
   "machine": {
     "rosetteRadius": 60,
     "rubberRadius": 1.5,
-    "workDiameter": 100
+    "workDiameter": 100,
+    "fillEdge": false
   },
   "rosettes": [
     {
@@ -74,5 +75,9 @@
     "enamel": false,
     "enamelColor": "#1b3fa0",
     "enamelOpacity": 0.45
+  },
+  "symmetry": {
+    "order": 0,
+    "mirror": false
   }
 }

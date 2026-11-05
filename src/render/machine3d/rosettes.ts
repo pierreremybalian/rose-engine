@@ -12,8 +12,21 @@ export const PUMP_BODY = 7;
 /** Spindle bore of every rosette. */
 export const ROSETTE_BORE = 11.2;
 
+/** Most vertices round a cam's rim: keeps a 300-lobe rosette's mesh to ~0.3 M vertices. */
+const MAX_RIM_SAMPLES = 8192;
+
+/**
+ * Samples round a cam: a whole, even number per lobe, so every lobe is meshed identically (no aliasing
+ * beat across fine cams) and peaks (u = 0) and valleys (u = 0.5) land on vertices (sharp profiles keep
+ * their corners). 64 per lobe up to 128 lobes, then as many as fit in MAX_RIM_SAMPLES (36 at 216 lobes,
+ * 26 at 300), and at least 1024 round the rim for low lobe counts.
+ */
 export function profileSamples(lobes: number): number {
-  return Math.min(6144, Math.max(1024, Math.ceil(Math.max(1, lobes) * 64)));
+  const n = Math.max(1, Math.round(lobes));
+  const even = (x: number) => 2 * Math.max(1, Math.floor(x / 2));
+  let perLobe = Math.min(64, even(MAX_RIM_SAMPLES / n));
+  perLobe = Math.max(perLobe, 2 * Math.ceil(1024 / n / 2));
+  return n * perLobe;
 }
 
 /** Cache key of a rosette's physical shape (built at phase 0; phase is applied as a rotation). */
@@ -40,6 +53,16 @@ export function pumpTrackRadii(baseRadius: number): { rIn: number; rOut: number;
 }
 
 /**
+ * Edge bevel of a rocking rosette, mm: 0.45, less on fine cams so the (outward) bevel offset stays inside
+ * the tightest valley. Valley radius of a sine cam is R^2 / (A L^2); a bevel near it folds into lumps.
+ */
+function rockBevel(r: Rosette, baseRadius: number): number {
+  const k = Math.abs(r.amplitude) * Math.max(1, r.lobes) ** 2;
+  const valley = k > 0 ? (baseRadius * baseRadius) / k : Infinity;
+  return Math.min(0.45, Math.max(0.1, 0.5 * valley));
+}
+
+/**
  * Rocking rosette: the profile r(phi) = rosetteRadiusAt(rosette, baseRadius, phi) extruded along Z,
  * centred on z = 0 (thickness ROCK_THICK). Rosette frame = local XY, phi measured CCW from +X.
  */
@@ -55,7 +78,7 @@ export function buildRockRosette(r: Rosette, baseRadius: number): THREE.BufferGe
   const hole = new THREE.Path();
   hole.absarc(0, 0, ROSETTE_BORE, 0, TAU, true);
   shape.holes.push(hole);
-  const bevel = 0.45;
+  const bevel = rockBevel(r, baseRadius);
   const g = new THREE.ExtrudeGeometry(shape, {
     depth: ROCK_THICK - 2 * bevel,
     bevelEnabled: true,

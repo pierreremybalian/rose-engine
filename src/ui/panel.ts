@@ -1,15 +1,19 @@
-// Left control panel: plate header, rosette stack, then param groups generated from PARAMS.
+// Left control panel: plate header, plate & symmetry, rosette stack, then param groups generated from PARAMS.
+// Every recipe edit made here goes through editRecipe (./edit), which enforces the recipe's symmetry.
 import { getPath, PARAMS, setPath, type ParamDef, type ParamGroup } from '../state/params';
 import type { AppState, Store } from '../state/store';
 import { h, reconcile, roman, uid } from './dom';
+import { editRecipe } from './edit';
 import { icon } from './icons';
 import { HINTS, lockButton, numberListControl, paramControl, switchButton, type Control, type FieldCtx } from './controls';
 import { paletteControl } from './palette';
+import { autoEndRadiusControl, plateSizeControl, symmetryControl, symmetryReadout } from './plate';
 import { rosetteStack } from './rosettes';
 
 type SectionId = 'rosettes' | ParamGroup;
 
 const SECTIONS: { id: SectionId; title: string; enable?: string; off?: string }[] = [
+  { id: 'plate', title: 'Plate & symmetry' },
   { id: 'rosettes', title: 'Rosette stack' },
   { id: 'slide', title: 'Slide rest' },
   { id: 'ink', title: 'Ink & paper' },
@@ -61,7 +65,7 @@ function section(store: Store, spec: (typeof SECTIONS)[number]): Section {
   if (spec.enable) {
     const def = PARAMS.find((d) => d.key === spec.enable)!;
     const key = def.key;
-    const sw = switchButton(`Engage ${spec.title.toLowerCase()}`, (next) => store.setRecipe((d) => setPath(d, key, next)));
+    const sw = switchButton(`Engage ${spec.title.toLowerCase()}`, (next) => editRecipe(store, (d) => setPath(d, key, next)));
     sw.el.dataset.tip = HINTS[key] ?? def.help ?? '';
     const lock = lockButton(store, key, spec.title);
     const wrap = h('div', { class: 'flex flex-none items-center gap-2 pr-3 pt-1' }, sw.el, lock.el);
@@ -72,6 +76,9 @@ function section(store: Store, spec: (typeof SECTIONS)[number]): Section {
   const el = h('section', { class: 're-section', 'data-group': spec.id }, headRow, body);
   return { id: spec.id, el, body, numeral, enable };
 }
+
+/** Pseudo-key for the read-only "End radius: auto" line that replaces the slider while Fill to edge is on. */
+const AUTO_END = 'slide.endRadius:auto';
 
 const PHASE_CUSTOM_DEF = {
   key: 'slide.phaseCustom',
@@ -90,7 +97,7 @@ export function createPanel(store: Store, drawerHeader: HTMLElement): { el: HTML
   const ctxFor = (key: string): FieldCtx => ({
     store,
     read: (r) => getPath(r, key),
-    write: (v, opts) => store.setRecipe((d) => setPath(d, key, v), opts),
+    write: (v, opts) => editRecipe(store, (d) => setPath(d, key, v), opts),
     lockKey: key,
   });
 
@@ -98,9 +105,13 @@ export function createPanel(store: Store, drawerHeader: HTMLElement): { el: HTML
   const control = (key: string): Control => {
     let c = controls.get(key);
     if (c) return c;
+    const def = () => PARAMS.find((d) => d.key === key)!;
     if (key === 'ink.palette') c = paletteControl(store);
     else if (key === 'slide.phaseCustom') c = numberListControl(PHASE_CUSTOM_DEF, ctxFor(key));
-    else c = paramControl(PARAMS.find((d) => d.key === key)!, ctxFor(key));
+    else if (key === 'machine.workDiameter') c = plateSizeControl(def(), store);
+    else if (key === 'symmetry.order') c = symmetryControl(def(), store);
+    else if (key === AUTO_END) c = autoEndRadiusControl();
+    else c = paramControl(def(), ctxFor(key));
     controls.set(key, c);
     return c;
   };
@@ -116,7 +127,7 @@ export function createPanel(store: Store, drawerHeader: HTMLElement): { el: HTML
   });
   nameInput.addEventListener('change', () => {
     const v = nameInput.value.trim() || 'Untitled';
-    if (v !== store.get().recipe.name) store.setRecipe((d) => void (d.name = v));
+    if (v !== store.get().recipe.name) editRecipe(store, (d) => void (d.name = v));
   });
   nameInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === 'Escape') {
@@ -125,6 +136,7 @@ export function createPanel(store: Store, drawerHeader: HTMLElement): { el: HTML
     }
   });
   const meta = h('p', { class: 're-figures mt-1.5 text-[12px] text-smoke' });
+  const symmetry = symmetryReadout();
   const plate = h(
     'div',
     { class: 're-plate px-6 pb-5 pt-5' },
@@ -137,11 +149,12 @@ export function createPanel(store: Store, drawerHeader: HTMLElement): { el: HTML
     ),
     nameInput,
     meta,
+    symmetry.el,
   );
 
   const stack = rosetteStack(store);
   const sections = SECTIONS.map((s) => section(store, s));
-  sections[0].body.appendChild(stack.el);
+  sections.find((sec) => sec.id === 'rosettes')!.body.appendChild(stack.el);
 
   const kbd = (k: string) => h('kbd', { class: 'rounded-[3px] border border-rule-strong px-1.5 py-px font-mono text-[10.5px] text-brass-300' }, k);
   const colophon = h(
@@ -167,6 +180,7 @@ export function createPanel(store: Store, drawerHeader: HTMLElement): { el: HTML
       seedLine.textContent = r.seed ? `№ ${r.seed}` : 'hand set';
       const passes = r.slide.passes * (r.eccentric.enabled ? r.eccentric.divisions : 1);
       meta.textContent = `${passes} pass${passes === 1 ? '' : 'es'} · Ø ${r.machine.workDiameter} mm · ${r.mode === 'ink' ? 'Ink on paper' : 'Engraved metal'}`;
+      if (!prev || r !== prev.recipe) symmetry.update(r);
 
       stack.update(s);
 
@@ -175,7 +189,12 @@ export function createPanel(store: Store, drawerHeader: HTMLElement): { el: HTML
         if (sec.id !== 'rosettes') {
           const keys: string[] = [];
           for (const d of PARAMS) {
-            if (d.group !== sec.id || d.key === sec.enable?.def.key || !isParamVisible(d, s)) continue;
+            if (d.group !== sec.id || d.key === sec.enable?.def.key) continue;
+            if (!isParamVisible(d, s)) {
+              // Fill to edge hides the End radius slider; say what it is instead of letting it vanish.
+              if (d.key === 'slide.endRadius' && r.machine.fillEdge && isParamVisible({ ...d, visible: undefined }, s)) keys.push(AUTO_END);
+              continue;
+            }
             keys.push(d.key);
             if (d.key === 'slide.phaseMode' && r.slide.phaseMode === 'custom') keys.push('slide.phaseCustom');
             if (d.key === 'ink.colorMode') keys.push('ink.palette');

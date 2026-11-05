@@ -4,6 +4,7 @@ import { ROSETTE_PARAMS } from '../state/params';
 import { defaultRosette, type Recipe, type Rosette } from '../state/recipe';
 import type { AppState, Store } from '../state/store';
 import { h, reconcile, roman } from './dom';
+import { editRecipe } from './edit';
 import { icon } from './icons';
 import { lockButton, paramControl, switchButton, type Control } from './controls';
 
@@ -120,7 +121,7 @@ function createCard(store: Store, id: string, animate: boolean): Card {
   const tag = h('span', { class: 're-tag px-1 py-px text-[9.5px] uppercase leading-none' });
   const summary = h('p', { class: 're-figures mt-1.5 truncate text-[12px] text-smoke' });
   const enable = switchButton('Enable rosette', (next) =>
-    store.setRecipe((d) => {
+    editRecipe(store, (d) => {
       const r = d.rosettes.find((x) => x.id === id);
       if (r) r.enabled = next;
     }),
@@ -132,7 +133,7 @@ function createCard(store: Store, id: string, animate: boolean): Card {
       class: 're-quiet size-8 flex-none hover:text-garnet',
       onClick: () => {
         if (store.get().recipe.rosettes.length <= 1) return;
-        store.setRecipe((d) => {
+        editRecipe(store, (d) => {
           d.rosettes = d.rosettes.filter((x) => x.id !== id);
         });
       },
@@ -164,7 +165,7 @@ function createCard(store: Store, id: string, animate: boolean): Card {
           return ro ? (ro as unknown as Record<string, unknown>)[key] : undefined;
         },
         write: (v, opts) =>
-          store.setRecipe((d) => {
+          editRecipe(store, (d) => {
             const ro = d.rosettes.find((x) => x.id === id);
             if (ro) (ro as unknown as Record<string, unknown>)[key] = v;
           }, opts),
@@ -230,7 +231,7 @@ export function rosetteStack(store: Store): { el: HTMLElement; update(s: AppStat
       class: 're-socket mx-4 mt-3 flex h-11 items-center justify-center gap-2 text-[13px] tracking-wide',
       'data-action': 'add-rosette',
       onClick: () => {
-        store.setRecipe((d) => {
+        editRecipe(store, (d) => {
           d.rosettes.push(defaultRosette());
         });
         const last = list.lastElementChild;

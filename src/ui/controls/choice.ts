@@ -254,6 +254,8 @@ export function segmented<T extends string>(opts: {
         b.setAttribute('aria-checked', String(on));
         b.tabIndex = on ? 0 : -1;
       }
+      // No option matches (e.g. a custom value set elsewhere): keep the group reachable by Tab.
+      if (!buttons.some((b) => b.tabIndex === 0) && buttons[0]) buttons[0].tabIndex = 0;
     },
   };
 }

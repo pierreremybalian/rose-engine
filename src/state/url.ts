@@ -54,7 +54,11 @@ export async function encodeRecipe(recipe: Recipe): Promise<string> {
   return toBase64Url(await pipe(json, new CompressionStream('deflate-raw')));
 }
 
-/** Reverse of encodeRecipe, validated through parsePreset. Returns null on any failure. */
+/**
+ * Reverse of encodeRecipe, validated through parsePreset. Returns null on any failure.
+ * Links from older builds carry their recipe version and are migrated there (a v1 link loads as v2 with
+ * Fill to edge off and free symmetry), so old share URLs keep working.
+ */
 export async function decodeRecipe(s: string): Promise<Recipe | null> {
   try {
     if (typeof s !== 'string' || !s.trim()) return null;

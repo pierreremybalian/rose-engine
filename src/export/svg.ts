@@ -1,10 +1,14 @@
 // SVG export: mm units, viewBox centred on the work (1 user unit = 1 mm), +Y up flipped to SVG's +Y down,
 // one Inkscape/AxiDraw layer per ink colour (ink) or per eccentric division (metal), recipe JSON in <metadata>.
+// Paths are clipped at the plate edge (the pen only draws on the plate): a pass that crosses the rim becomes
+// one <path> per piece inside it.
 import type { Recipe } from '../state/recipe';
 import type { Pass, Toolpath } from '../engine/types';
 import type { SvgOptions } from './types';
 import { passColor } from '../state/colors';
 import { simplifyPolyline } from '../engine/simplify';
+import { plateRadius } from '../engine/plate';
+import { clipPass, type ClipStroke } from './clip';
 
 const NS_SVG = 'http://www.w3.org/2000/svg';
 const NS_INKSCAPE = 'http://www.inkscape.org/namespaces/inkscape';
@@ -49,10 +53,15 @@ export function grooveWidth(depth: number, toolAngleDeg: number): number {
  * Closed passes never repeat the first index at the end. tolerance <= 0 keeps every sample.
  */
 export function keptIndices(tp: Toolpath, pass: Pass, tolerance: number): number[] {
-  const { start, count, closed } = pass;
+  return keptStrokeIndices({ x: tp.x, y: tp.y, z: tp.z, start: pass.start, count: pass.count, closed: pass.closed }, tolerance);
+}
+
+/** keptIndices for any run of samples (a whole pass or a clipped piece); indices into the stroke's arrays. */
+export function keptStrokeIndices(stroke: ClipStroke, tolerance: number): number[] {
+  const { start, count, closed } = stroke;
   if (count <= 0) return [];
   if (!(tolerance > 0) || count <= 2) return rangeIndices(start, count);
-  const raw = simplifyPolyline(tp.x, tp.y, start, count, tolerance, closed);
+  const raw = simplifyPolyline(stroke.x, stroke.y, start, count, tolerance, closed);
   const end = start + count;
   const out: number[] = [];
   let prev = -1;
@@ -101,9 +110,36 @@ export function sampleBounds(tp: Toolpath): Bounds | null {
   return minX <= maxX ? { minX, minY, maxX, maxY } : null;
 }
 
-/** SVG path data for one pass: absolute coords, y negated, "M x y L x y x y … [Z]". */
-function pathData(tp: Toolpath, idx: number[], closed: boolean): string {
-  const { x, y } = tp;
+/** Bounds of every finite sample of a set of strokes (null if there are none). */
+export function strokeBounds(strokes: ClipStroke[]): Bounds | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const s of strokes) {
+    const end = s.start + s.count;
+    for (let i = s.start; i < end; i++) {
+      const xi = s.x[i];
+      const yi = s.y[i];
+      if (!Number.isFinite(xi) || !Number.isFinite(yi)) continue;
+      if (xi < minX) minX = xi;
+      if (xi > maxX) maxX = xi;
+      if (yi < minY) minY = yi;
+      if (yi > maxY) maxY = yi;
+    }
+  }
+  return minX <= maxX ? { minX, minY, maxX, maxY } : null;
+}
+
+/** Every pass clipped at the plate edge, in toolpath order (fully inside passes are not copied). */
+export function clippedStrokes(recipe: Recipe, tp: Toolpath): { pass: Pass; strokes: ClipStroke[] }[] {
+  const R = plateRadius(recipe);
+  return tp.passes.map((pass) => ({ pass, strokes: clipPass(tp, pass, R) }));
+}
+
+/** SVG path data for one stroke: absolute coords, y negated, "M x y L x y x y … [Z]". */
+function pathData(stroke: ClipStroke, idx: number[], closed: boolean): string {
+  const { x, y } = stroke;
   const parts: string[] = [];
   for (let k = 0; k < idx.length; k++) {
     const i = idx[k];
@@ -133,22 +169,20 @@ export function buildSVG(recipe: Recipe, toolpath: Toolpath, opts: SvgOptions): 
     ? grooveWidth(recipe.metal.baseDepth, recipe.metal.toolAngle)
     : recipe.ink.lineWidth;
 
-  // Canvas: D = work diameter, grown if the toolpath (plus half a stroke) reaches outside it.
-  let half = Math.max(0, recipe.machine.workDiameter / 2);
-  const b = sampleBounds(toolpath);
-  if (b) {
-    const reach = Math.max(Math.abs(b.minX), Math.abs(b.maxX), Math.abs(b.minY), Math.abs(b.maxY)) + strokeWidth / 2;
-    if (reach > half) half = reach;
-  }
-  if (!(half > 0)) half = 1;
-  half = Math.ceil(half * 1000) / 1000;
+  const clipped = clippedStrokes(recipe, toolpath);
+
+  // Canvas: the plate. Every path is clipped to it (round caps may overhang the rim by half a stroke).
+  const half = Math.ceil(plateRadius(recipe) * 1000) / 1000;
   const D = fmt3(2 * half);
   const negH = fmt3(-half);
 
   // Layers, in order of first appearance.
   const layers: Layer[] = [];
   const byKey = new Map<string, Layer>();
-  for (const p of toolpath.passes) {
+  const strokesOf = new Map<Pass, ClipStroke[]>();
+  for (const { pass: p, strokes } of clipped) {
+    if (strokes.length === 0) continue; // entirely off the plate
+    strokesOf.set(p, strokes);
     let key: string;
     let stroke: string;
     if (metal) {
@@ -216,8 +250,10 @@ export function buildSVG(recipe: Recipe, toolpath: Toolpath, opts: SvgOptions): 
         `stroke="${xmlEscape(layer.stroke)}" stroke-width="${sw}"${opacityAttr} stroke-linecap="round" stroke-linejoin="round">`,
     );
     for (const p of layer.passes) {
-      const d = pathData(toolpath, keptIndices(toolpath, p, opts.tolerance), p.closed);
-      out.push(`<path d="${d}"/>`);
+      for (const st of strokesOf.get(p) ?? []) {
+        const d = pathData(st, keptStrokeIndices(st, opts.tolerance), st.closed);
+        if (d) out.push(`<path d="${d}"/>`);
+      }
     }
     out.push('</g>');
   }

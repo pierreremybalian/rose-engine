@@ -1,7 +1,8 @@
 // CONTRACT FILE — single param schema. The UI panel, the randomizer and lock toggles are all driven from it.
 import type { Mode, Recipe, Rosette } from './recipe';
+import { maxUsefulRadius } from '../engine/plate';
 
-export type ParamGroup = 'machine' | 'slide' | 'eccentric' | 'elliptical' | 'ink' | 'metal';
+export type ParamGroup = 'plate' | 'machine' | 'slide' | 'eccentric' | 'elliptical' | 'ink' | 'metal';
 export type ParamType = 'number' | 'int' | 'bool' | 'select' | 'color';
 
 export interface ParamDef {
@@ -24,20 +25,29 @@ export interface ParamDef {
   /** Range used by Random/Mutate for numeric params. Omit = Random leaves it to the pattern family. */
   random?: [number, number];
   help?: string;
+  /** Recipe-dependent limits that override min/max/step (e.g. radius limits follow the plate size,
+   *  lobe steps follow the symmetry order). Read limits through resolveParam(def, recipe). */
+  dynamic?: (r: Recipe) => { min?: number; max?: number; step?: number };
 }
 
 const phaseIs = (m: Recipe['slide']['phaseMode']) => (r: Recipe) => r.slide.phaseMode === m;
 
 export const PARAMS: ParamDef[] = [
   // Machine
-  { key: 'machine.workDiameter', label: 'Work diameter', group: 'machine', type: 'number', unit: 'mm', min: 20, max: 300, step: 1, simple: false },
+  // Plate
+  { key: 'machine.workDiameter', label: 'Plate size', group: 'plate', type: 'number', unit: 'mm', min: 20, max: 300, step: 1, simple: true, help: 'Diameter of the dial or paper disc. Watch dials are about 28–42 mm.' },
+  { key: 'machine.fillEdge', label: 'Fill to edge', group: 'plate', type: 'bool', simple: true, help: 'Run the cut out past the rim so the whole plate is engraved.' },
+  { key: 'symmetry.order', label: 'Symmetry', group: 'plate', type: 'int', min: 0, max: 96, step: 1, simple: true, help: '0 = free. N keeps the pattern N-fold symmetric: lobe counts snap to multiples of N.' },
+  { key: 'symmetry.mirror', label: 'Mirror', group: 'plate', type: 'bool', simple: true, visible: (r) => r.symmetry.order >= 2, help: 'Mirror-symmetric about 12–6: symmetric profiles, peaks on 12 o’clock, no twist.' },
+
+  // Machine
   { key: 'machine.rosetteRadius', label: 'Rosette radius', group: 'machine', type: 'number', unit: 'mm', min: 30, max: 120, step: 1, simple: false, help: 'Mean radius of the cams. Matters for how the rubber rides sharp profiles.' },
   { key: 'machine.rubberRadius', label: 'Rubber radius', group: 'machine', type: 'number', unit: 'mm', min: 0, max: 12, step: 0.1, simple: false, random: [0, 6], help: 'Bigger rubbers round off sharp rosette points.' },
 
   // Slide (cutter) program
   { key: 'slide.passes', label: 'Passes', group: 'slide', type: 'int', min: 1, max: 300, step: 1, simple: true, random: [12, 120] },
-  { key: 'slide.startRadius', label: 'Start radius', group: 'slide', type: 'number', unit: 'mm', min: 0, max: 150, step: 0.1, simple: true, random: [0, 20] },
-  { key: 'slide.endRadius', label: 'End radius', group: 'slide', type: 'number', unit: 'mm', min: 0.5, max: 150, step: 0.1, simple: true, random: [25, 48] },
+  { key: 'slide.startRadius', label: 'Start radius', group: 'slide', type: 'number', unit: 'mm', min: 0, max: 150, step: 0.1, simple: true, random: [0, 20], dynamic: (r) => ({ max: maxUsefulRadius(r) }) },
+  { key: 'slide.endRadius', label: 'End radius', group: 'slide', type: 'number', unit: 'mm', min: 0.5, max: 150, step: 0.1, simple: true, random: [25, 48], visible: (r) => !r.machine.fillEdge, dynamic: (r) => ({ max: maxUsefulRadius(r) }) },
   {
     key: 'slide.phaseMode', label: 'Phasing', group: 'slide', type: 'select', simple: true,
     options: [
@@ -116,9 +126,13 @@ export const ROSETTE_PARAMS: (Omit<ParamDef, 'group'> & { key: keyof Rosette })[
       { value: 'flame', label: 'Flame' },
       { value: 'square', label: 'Square' },
       { value: 'saw', label: 'Saw' },
+      { value: 'triangle', label: 'Triangle (zigzag)' },
     ],
   },
-  { key: 'lobes', label: 'Lobes', type: 'int', min: 1, max: 96, step: 1, simple: true, random: [3, 48] },
+  {
+    key: 'lobes', label: 'Lobes', type: 'int', min: 1, max: 300, step: 1, simple: true, random: [3, 48],
+    dynamic: (r) => (r.symmetry.order >= 2 ? { min: r.symmetry.order, step: r.symmetry.order, max: Math.floor(300 / r.symmetry.order) * r.symmetry.order } : {}),
+  },
   { key: 'amplitude', label: 'Amplitude', type: 'number', unit: 'mm', min: 0, max: 8, step: 0.05, simple: true, random: [0.3, 3] },
   { key: 'phase', label: 'Phase', type: 'number', unit: '°', min: 0, max: 360, step: 0.5, simple: false, random: [0, 360] },
 ];
@@ -144,6 +158,13 @@ export function setPath(obj: unknown, path: string, value: unknown): void {
   let o = obj as Record<string, unknown>;
   for (let i = 0; i < keys.length - 1; i++) o = o[keys[i]] as Record<string, unknown>;
   o[keys[keys.length - 1]] = value;
+}
+
+/** A param's limits for this recipe: static min/max/step overridden by `dynamic`. */
+export function resolveParam<D extends Pick<ParamDef, 'min' | 'max' | 'step' | 'dynamic'>>(def: D, r: Recipe): D {
+  if (!def.dynamic) return def;
+  const d = def.dynamic(r);
+  return { ...def, ...Object.fromEntries(Object.entries(d).filter(([, v]) => v !== undefined && Number.isFinite(v))) };
 }
 
 export function clampParam(def: Pick<ParamDef, 'type' | 'min' | 'max'>, v: number): number {

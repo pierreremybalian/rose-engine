@@ -3,6 +3,7 @@
 import type { Mode } from '../state/recipe';
 import type { AppState, Layout, Store, UiMode } from '../state/store';
 import { h, roman } from './dom';
+import { editRecipe } from './edit';
 import { emblem } from './emblem';
 import { icon } from './icons';
 import { segmented } from './controls';
@@ -25,7 +26,7 @@ interface ViewControls {
 function viewControls(store: Store, size: 'bar' | 'drawer'): ViewControls {
   const bar = size === 'bar';
   const setMode = (m: Mode) => {
-    if (store.get().recipe.mode !== m) store.setRecipe((d) => void (d.mode = m));
+    if (store.get().recipe.mode !== m) editRecipe(store, (d) => void (d.mode = m));
   };
   const mode = segmented<Mode>({
     label: 'Finish',

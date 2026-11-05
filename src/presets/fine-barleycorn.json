@@ -1,0 +1,74 @@
+{
+  "version": 2,
+  "name": "Fine Barleycorn",
+  "seed": 0,
+  "mode": "metal",
+  "machine": {
+    "rosetteRadius": 60,
+    "rubberRadius": 0.15,
+    "workDiameter": 32,
+    "fillEdge": true
+  },
+  "rosettes": [
+    {
+      "id": "a",
+      "enabled": true,
+      "axis": "rock",
+      "lobes": 216,
+      "amplitude": 0.125,
+      "profile": "triangle",
+      "phase": 0
+    }
+  ],
+  "slide": {
+    "startRadius": 0,
+    "endRadius": 16.3,
+    "passes": 66,
+    "phaseMode": "alternate",
+    "phaseStep": 0,
+    "alternateEvery": 1,
+    "alternateFraction": 0.5,
+    "phaseCustom": [
+      0
+    ],
+    "amplitudeTaper": 1,
+    "spiral": false
+  },
+  "eccentric": {
+    "enabled": false,
+    "offset": 0,
+    "angle": 0,
+    "divisions": 1,
+    "divisionStep": 0
+  },
+  "elliptical": {
+    "enabled": false,
+    "e": 0,
+    "angle": 0
+  },
+  "ink": {
+    "palette": [
+      "#1d2a5c",
+      "#2f6b4f",
+      "#7a2a3a"
+    ],
+    "colorMode": "single",
+    "paper": "#f4efe4",
+    "lineWidth": 0.08,
+    "opacity": 0.92
+  },
+  "metal": {
+    "material": "silver",
+    "toolAngle": 120,
+    "baseDepth": 0.16,
+    "lightAngle": 45,
+    "lightElevation": 36,
+    "enamel": false,
+    "enamelColor": "#1b3fa0",
+    "enamelOpacity": 0.45
+  },
+  "symmetry": {
+    "order": 72,
+    "mirror": true
+  }
+}

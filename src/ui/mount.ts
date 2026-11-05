@@ -8,6 +8,7 @@ import { bindKeyboard } from './keyboard';
 import { createToaster, createTooltip } from './overlays';
 import { createPanel } from './panel';
 import { createDrawerHeader, createTopbar } from './topbar';
+import { createTiltPad } from './tiltPad';
 import { createTransport } from './transport';
 import type { MountedUI, UIDeps } from './types';
 
@@ -38,6 +39,7 @@ export function mountUI(root: HTMLElement, store: Store, deps: UIDeps): MountedU
   const drawerHeader = createDrawerHeader(store, deps, hooks);
   const panel = createPanel(store, drawerHeader.el);
   const transport = createTransport(store, deps);
+  const tiltPad = createTiltPad(store);
 
   const aside = h(
     'aside',
@@ -104,6 +106,7 @@ export function mountUI(root: HTMLElement, store: Store, deps: UIDeps): MountedU
     }
     panel.update(s, prev);
     transport.update(s, prev);
+    if (!prev || s.tilt !== prev.tilt || s.shimmer !== prev.shimmer) tiltPad.update(s, prev);
   };
   update(store.get());
   const unsubscribe = store.subscribe(update);
@@ -124,6 +127,8 @@ export function mountUI(root: HTMLElement, store: Store, deps: UIDeps): MountedU
 
   return {
     workViewport,
+    workControls: tiltPad.el,
+    showTilt: (t) => tiltPad.show(t),
     dispose() {
       unsubscribe();
       unbindKeys();
@@ -132,6 +137,7 @@ export function mountUI(root: HTMLElement, store: Store, deps: UIDeps): MountedU
       tooltip.dispose();
       toaster.dispose();
       dialog.close();
+      tiltPad.el.remove();
       app.remove();
     },
   };

@@ -9,7 +9,7 @@ const MAX_PALETTE = 8;
 const MAX_CUSTOM_PHASES = 64;
 const MAX_NAME = 80;
 
-const SECTIONS = ['machine', 'slide', 'eccentric', 'elliptical', 'ink', 'metal'] as const;
+const SECTIONS = ['machine', 'slide', 'eccentric', 'elliptical', 'ink', 'metal', 'symmetry'] as const;
 const TOP_KEYS = new Set<string>(['version', 'name', 'seed', 'mode', 'rosettes', ...SECTIONS]);
 
 const ENUMS: Record<string, readonly string[]> = {
@@ -17,7 +17,7 @@ const ENUMS: Record<string, readonly string[]> = {
   'slide.phaseMode': ['linear', 'alternate', 'custom'],
   'ink.colorMode': ['single', 'cycle', 'gradient'],
   'metal.material': ['silver', 'gold', 'rose', 'brass', 'steel', 'blued'],
-  'rosette.profile': ['sine', 'convex', 'concave', 'flame', 'square', 'saw'],
+  'rosette.profile': ['sine', 'convex', 'concave', 'flame', 'square', 'saw', 'triangle'],
   'rosette.axis': ['rock', 'pump'],
 };
 
@@ -36,7 +36,17 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
  * Migrations from version N to N + 1, applied in order up to RECIPE_VERSION.
  * Add an entry here whenever RECIPE_VERSION is bumped, e.g. `1: (o) => ({ ...o, newField: ..., version: 2 })`.
  */
-export const MIGRATIONS: Record<number, (o: Obj) => Obj> = {};
+export const MIGRATIONS: Record<number, (o: Obj) => Obj> = {
+  // v2 adds machine.fillEdge and the symmetry section. A v1 recipe ran to slide.endRadius with no constraint, so it
+  // gets Fill to edge off and free symmetry. Fields already present are kept: a file without a version number is
+  // read as v1 but may be a hand-written v2 recipe. Non-object sections are left alone for parsing to reject.
+  1: (o) => {
+    const out: Obj = { ...o, version: 2 };
+    if (isObj(o.machine) && !('fillEdge' in o.machine)) out.machine = { ...o.machine, fillEdge: false };
+    if (o.symmetry === undefined) out.symmetry = { order: 0, mirror: false };
+    return out;
+  },
+};
 
 export function migratePreset(o: Obj): Obj {
   let v = typeof o.version === 'number' && Number.isFinite(o.version) ? Math.floor(o.version) : 1;

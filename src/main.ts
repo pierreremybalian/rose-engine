@@ -19,7 +19,11 @@ import { fileName } from './export/filename';
 
 const DEFAULT_SPEED = 4;
 
-const store = new Store({ playback: { playing: false, speed: DEFAULT_SPEED, progress: 0 } });
+/** Symmetry and Fill to edge start locked, so Random keeps the user's choice until they unlock them.
+ *  Locks are view state: share URLs and preset files carry only the recipe. */
+const DEFAULT_LOCKS = ['symmetry.order', 'symmetry.mirror', 'machine.fillEdge'];
+
+const store = new Store({ locks: [...DEFAULT_LOCKS], playback: { playing: false, speed: DEFAULT_SPEED, progress: 0 } });
 
 // ---------- toolpath cache ----------
 // Only these recipe parts change the geometry; mode/ink/metal edits reuse the same Toolpath object,
@@ -123,7 +127,13 @@ const deps: UIDeps = {
 const ui = mountUI(root, store, deps);
 
 // ---------- renderer + playback ----------
-const app = new RenderApp(ui.workViewport, { machine: createMachineModel() });
+const app = new RenderApp(ui.workViewport, {
+  machine: createMachineModel(),
+  onTilt: (t) => ui.showTilt(t),
+  // grabbing the tilt on the view (or a double-click reset) takes over from the shimmer
+  onTiltInput: (t) => store.set({ tilt: t, shimmer: false }),
+});
+app.attachWorkControls(ui.workControls);
 const playback = new Playback(store, () => toolpath);
 
 function flushRebuild(): void {
@@ -171,12 +181,17 @@ store.subscribe((s: AppState, prev: AppState) => {
   if (s.layout !== prev.layout) app.setLayout(s.layout);
   if (s.frame !== prev.frame) app.setFrame(s.frame);
   if (s.camera !== prev.camera) app.setCameraPreset(s.camera);
+  // shimmer first: a grab sets both, and the new base tilt must then apply without an ease-out
+  if (s.shimmer !== prev.shimmer) app.setShimmer(s.shimmer);
+  if (s.tilt !== prev.tilt) app.setTilt(s.tilt);
 });
 
 // ---------- boot ----------
 const init = store.get();
 app.setLayout(init.layout);
 app.setFrame(init.frame);
+app.setTilt(init.tilt);
+app.setShimmer(init.shimmer);
 autoplayNext = true; // first visit: let the plotter draw the opening pattern
 flushRebuild();
 playback.start();

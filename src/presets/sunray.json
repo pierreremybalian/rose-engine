@@ -1,12 +1,13 @@
 {
-  "version": 1,
+  "version": 2,
   "name": "Soleil",
   "seed": 0,
   "mode": "metal",
   "machine": {
     "rosetteRadius": 60,
     "rubberRadius": 0.2,
-    "workDiameter": 100
+    "workDiameter": 100,
+    "fillEdge": false
   },
   "rosettes": [
     {
@@ -65,5 +66,9 @@
     "enamel": false,
     "enamelColor": "#1b3fa0",
     "enamelOpacity": 0.45
+  },
+  "symmetry": {
+    "order": 72,
+    "mirror": true
   }
 }

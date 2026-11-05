@@ -92,3 +92,15 @@ Screenshots: the `playwright` npm package is installed (Node). Write scripts in 
 ## Checks
 - `npx vitest run tests/<your-area>`: run only your own tests.
 - `npx tsc --noEmit`: other agents' files may be mid-edit, so only fix errors in files you own.
+
+## Batch 2 contracts (plate, fill, symmetry)
+
+- `Recipe` is version 2 with two additions: `machine.fillEdge: boolean` and `symmetry: { order: number; mirror: boolean }`. Order 0 means free. The v1 → v2 migration is in `src/export/preset.ts`. Missing fields fall back to the defaults (off and free).
+- `src/engine/plate.ts` holds the plate geometry: `plateRadius`, `chuckReach`, `rockReach`, `maxUsefulRadius`, `fillEndRadius` and `effectiveEndRadius`.
+  - When `fillEdge` is on, the engine ignores `slide.endRadius` and uses `effectiveEndRadius`.
+  - Everything is clipped at the plate edge: the renderers (ink, groove, 3D disc) and the exports (SVG and G-code split paths at the rim and lift the pen).
+- `src/state/params.ts`:
+  - New group `'plate'`: `machine.workDiameter` (label "Plate size", shown in Simple view), `machine.fillEdge`, `symmetry.order` and `symmetry.mirror`.
+  - `ParamDef.dynamic(r)` overrides min, max and step per recipe. Always read limits through `resolveParam(def, recipe)`. Start and end radius max out at `maxUsefulRadius`. When `symmetry.order` ≥ 2, the lobes min and step become the order.
+- `src/engine/symmetry.ts`: `analyzeSymmetry(r)` gives `{order, mirror}` for the readout. `enforceSymmetry(r)` returns the same object when nothing changes. UI edits, Random and Mutate all pass through it.
+- `src/state/scale.ts`: `scaleRecipe(r, k)` scales the design by k, used when the plate size changes.

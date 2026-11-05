@@ -49,20 +49,51 @@ describe('buildSVG', () => {
     expect(svg).toMatch(/<svg[^>]* width="100mm" height="100mm" viewBox="-50 -50 100 100"/);
   });
 
-  it('grows the canvas when the toolpath reaches outside the work disc', () => {
+  it('clips paths at the plate edge: the canvas stays the plate and every point is on it', () => {
     const wide = ringsToolpath({ passes: 3, samples: 64, r0: 20, r1: 30, divisions: 4, offset: 25, amplitude: 0 });
     const svg = buildSVG(recipe, wide, bare);
-    const m = /width="([\d.]+)mm" height="([\d.]+)mm" viewBox="(\S+) (\S+) (\S+) (\S+)"/.exec(svg)!;
-    const D = Number(m[1]);
-    expect(D).toBeGreaterThan(110);
-    expect(Number(m[2])).toBe(D);
-    expect(Number(m[3])).toBe(-D / 2);
-    expect(Number(m[5])).toBe(D);
-    // Every point is inside the viewBox.
-    for (const d of pathDs(svg)) for (const [x, y] of pathPoints(d)) {
-      expect(Math.abs(x)).toBeLessThanOrEqual(D / 2);
-      expect(Math.abs(y)).toBeLessThanOrEqual(D / 2);
+    expect(assertWellFormedXml(svg)).toBe('svg');
+    expect(svg).toMatch(/<svg[^>]* width="100mm" height="100mm" viewBox="-50 -50 100 100"/);
+    const ds = pathDs(svg);
+    // the four outer rings cross the rim and become open arcs (no Z); the others stay closed
+    expect(ds.length).toBe(wide.passes.length);
+    expect(ds.filter((d) => !d.endsWith('Z')).length).toBe(4);
+    // a 12-lobed ring around the rim leaves and re-enters the plate 12 times: 12 pieces
+    const wavy = ringsToolpath({ passes: 1, samples: 720, r0: 49.4, lobes: 12, amplitude: 1.2 });
+    expect(pathDs(buildSVG(recipe, wavy, bare)).length).toBe(12);
+    let onRim = 0;
+    for (const d of ds) {
+      const pts = pathPoints(d);
+      for (const [x, y] of pts) expect(Math.hypot(x, y)).toBeLessThanOrEqual(50 + 2e-3);
+      if (!d.endsWith('Z')) {
+        // an open piece of a closed ring starts and ends on the rim (3-decimal rounding)
+        for (const [x, y] of [pts[0], pts[pts.length - 1]]) {
+          expect(Math.abs(Math.hypot(x, y) - 50)).toBeLessThan(2e-3);
+          onRim++;
+        }
+      }
     }
+    expect(onRim).toBeGreaterThan(0);
+  });
+
+  it('leaves a pattern that is entirely on the plate untouched', () => {
+    const svgA = buildSVG(recipe, tp, bare);
+    const ds = pathDs(svgA);
+    expect(ds.length).toBe(tp.passes.length);
+    const [first] = ds;
+    const pts = pathPoints(first);
+    expect(pts.length).toBe(256);
+    expect(pts[0][0]).toBeCloseTo(tp.x[0], 3);
+    expect(pts[0][1]).toBeCloseTo(-tp.y[0], 3);
+  });
+
+  it('drops passes that are entirely off the plate', () => {
+    const t = makeToolpath([
+      { points: [[60, 0], [70, 0], [70, 10]], closed: false },
+      { points: [[0, 0], [10, 0]], closed: false },
+    ]);
+    const ds = pathDs(buildSVG(recipe, t, bare));
+    expect(ds).toEqual(['M0 0 L10 0']);
   });
 
   it('flips y (work +Y up becomes SVG -y) and writes 3-decimal coordinates', () => {

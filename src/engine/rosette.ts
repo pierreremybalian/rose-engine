@@ -32,6 +32,10 @@ export function profileValue(kind: ProfileKind, u: number): number {
     case 'saw':
       // Linear ramp down from peak, instant return.
       return 1 - 2 * u;
+    case 'triangle':
+      // Symmetric zigzag: straight flanks from the peak (u = 0) to the valley (u = 0.5). Straight-sided
+      // lobes cut barleycorn diamonds into crisp four-facet pyramids.
+      return 1 - 4 * Math.abs(u - Math.round(u));
   }
 }
 

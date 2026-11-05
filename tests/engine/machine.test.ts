@@ -11,9 +11,10 @@ import {
   MAX_TOTAL_SAMPLES,
   MIN_SAMPLES_PER_REV,
 } from '../../src/engine';
+import { chuckReach, effectiveEndRadius, plateRadius, rockReach } from '../../src/engine/plate';
 
 const TAU = Math.PI * 2;
-const PROFILES: ProfileKind[] = ['sine', 'convex', 'concave', 'flame', 'square', 'saw'];
+const PROFILES: ProfileKind[] = ['sine', 'convex', 'concave', 'flame', 'square', 'saw', 'triangle'];
 
 function single(partial: (r: Recipe) => void = () => {}): Recipe {
   const r = defaultRecipe();
@@ -98,6 +99,44 @@ describe('rosette symmetry', () => {
       expect(pose.rock).toBeCloseTo(2 * profileValue('flame', u), 9);
       const pt = toolPoint(p, pose);
       expect(Math.atan2(pt.y, pt.x)).toBeCloseTo(Math.atan2(Math.sin(phi), Math.cos(phi)), 9);
+    }
+  });
+});
+
+describe('triangle profile', () => {
+  const tri = (u: number) => profileValue('triangle', u);
+
+  it('stays in [-1, 1] with its peak at u = 0 and valley at u = 0.5', () => {
+    for (let k = -400; k <= 400; k++) {
+      const v = tri(k / 137);
+      expect(v).toBeGreaterThanOrEqual(-1);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+    expect(tri(0)).toBe(1);
+    expect(tri(1)).toBe(1);
+    expect(tri(-3)).toBe(1);
+    expect(tri(0.5)).toBe(-1);
+    expect(tri(0.25)).toBeCloseTo(0, 12);
+    expect(tri(0.75)).toBeCloseTo(0, 12);
+  });
+
+  it('is symmetric about the peak and anti-symmetric across half a lobe', () => {
+    for (let k = 0; k < 64; k++) {
+      const u = k / 64 + 0.003;
+      expect(tri(-u)).toBeCloseTo(tri(u), 12);
+      expect(tri(u + 0.5)).toBeCloseTo(-tri(u), 12);
+      expect(tri(u + 1)).toBeCloseTo(tri(u), 12);
+    }
+  });
+
+  it('is linear on each flank (slope -4 falling, +4 rising)', () => {
+    for (let k = 1; k < 50; k++) {
+      const u = k / 100; // 0.01 .. 0.49: falling flank
+      expect(tri(u)).toBeCloseTo(1 - 4 * u, 12);
+      expect(tri(u + 0.5)).toBeCloseTo(-1 + 4 * u, 12); // rising flank
+      const h = 1e-4;
+      expect((tri(u + h) - tri(u - h)) / (2 * h)).toBeCloseTo(-4, 6);
+      expect((tri(u + 0.5 + h) - tri(u + 0.5 - h)) / (2 * h)).toBeCloseTo(4, 6);
     }
   });
 });
@@ -522,5 +561,90 @@ describe('performance', () => {
     console.log(`computeToolpath ${tp.totalSamples} samples: best ${best.toFixed(1)} ms, runs ${runs.map((x) => x.toFixed(1)).join(', ')}; prepare (uncached rubber) ${prepMs.toFixed(1)} ms`);
     expect(tp.samplesPerRev).toBe(4096);
     expect(best).toBeLessThan(250);
+  });
+});
+
+describe('fill to edge', () => {
+  /** Smallest distance from the work centre to any sample of the outermost pass of each division. */
+  function outermostMinRadius(r: Recipe): number {
+    const p = prepare(r, { maxSamples: 400_000 });
+    const tp = computeToolpath(p);
+    let min = Infinity;
+    for (const pass of tp.passes) {
+      if (!r.slide.spiral && pass.slidePass !== r.slide.passes - 1) continue;
+      // Spiral: the last revolution of each stroke.
+      const from = r.slide.spiral ? pass.start + pass.count - 1 - tp.samplesPerRev : pass.start;
+      for (let i = from; i < pass.start + pass.count; i++) min = Math.min(min, Math.hypot(tp.x[i], tp.y[i]));
+    }
+    return min;
+  }
+
+  const cases: [string, (r: Recipe) => void][] = [
+    ['plain', () => {}],
+    ['taper + two rock rosettes + pump', (r) => {
+      r.slide.amplitudeTaper = 1.6;
+      r.rosettes = [defaultRosette({ lobes: 18, amplitude: 1.1, profile: 'concave' }), defaultRosette({ lobes: 6, amplitude: 0.7, phase: 13 }), defaultRosette({ lobes: 4, amplitude: 0.2, axis: 'pump' })];
+    }],
+    ['eccentric', (r) => (r.eccentric = { enabled: true, offset: 7, angle: 30, divisions: 5, divisionStep: 0 })],
+    ['elliptical', (r) => (r.elliptical = { enabled: true, e: 4, angle: 20 })],
+    ['eccentric + elliptical', (r) => {
+      r.eccentric = { enabled: true, offset: 3, angle: 200, divisions: 1, divisionStep: 0 };
+      r.elliptical = { enabled: true, e: 2.5, angle: 70 };
+    }],
+    ['spiral', (r) => (r.slide.spiral = true)],
+    ['spiral, multi-start eccentric', (r) => {
+      r.slide.spiral = true;
+      r.eccentric = { enabled: true, offset: 4, angle: 0, divisions: 3, divisionStep: 0 };
+    }],
+  ];
+
+  for (const [name, setup] of cases) {
+    it(`${name}: the outermost pass runs to plate radius + chuck reach + rock reach and clears the rim`, () => {
+      const r = defaultRecipe();
+      r.machine.workDiameter = 60;
+      r.slide = { ...r.slide, startRadius: 4, endRadius: 12, passes: 9 };
+      setup(r);
+      r.machine.fillEdge = true;
+      const reach = plateRadius(r) + chuckReach(r) + rockReach(r);
+      const p = prepare(r);
+      const last = r.slide.spiral ? poseAt(p, 0, TAU * r.slide.passes) : poseAt(p, r.slide.passes - 1, 0);
+      expect(last.slideRadius).toBeCloseTo(effectiveEndRadius(r), 9);
+      expect(last.slideRadius).toBeGreaterThanOrEqual(reach);
+      // slide.endRadius is ignored: the first pass still starts at startRadius.
+      expect(poseAt(p, 0, 0).slideRadius).toBeCloseTo(4, 9);
+      // Every point of the last pass (troughs included) lies outside the plate.
+      expect(outermostMinRadius(r)).toBeGreaterThan(plateRadius(r));
+    });
+  }
+
+  it('fill off is unchanged: the engine runs to slide.endRadius exactly', () => {
+    for (const [, setup] of cases) {
+      const r = defaultRecipe();
+      r.slide = { ...r.slide, startRadius: 4, endRadius: 12, passes: 9 };
+      setup(r);
+      r.machine.fillEdge = false;
+      expect(effectiveEndRadius(r)).toBe(12);
+      const p = prepare(r);
+      const last = r.slide.spiral ? poseAt(p, 0, TAU * r.slide.passes) : poseAt(p, r.slide.passes - 1, 0);
+      expect(last.slideRadius).toBeCloseTo(12, 9);
+      // Same toolpath as a recipe that never heard of fillEdge (v1 shape).
+      const legacy = structuredClone(r) as Partial<Recipe> & Recipe;
+      delete (legacy.machine as Partial<Recipe['machine']>).fillEdge;
+      const a = computeToolpath(prepare(r, { maxSamples: 100_000 }));
+      const b = computeToolpath(prepare(legacy, { maxSamples: 100_000 }));
+      expect(Array.from(a.x)).toEqual(Array.from(b.x));
+      expect(Array.from(a.y)).toEqual(Array.from(b.y));
+    }
+  });
+
+  it('fill on moves only the end radius (start, passes, phases are untouched)', () => {
+    const r = defaultRecipe();
+    r.slide = { ...r.slide, startRadius: 0, endRadius: 20, passes: 30 };
+    const off = prepare(r);
+    const on = prepare({ ...r, machine: { ...r.machine, fillEdge: true } });
+    expect(poseAt(on, 0, 0.3).slideRadius).toBe(poseAt(off, 0, 0.3).slideRadius);
+    expect(poseAt(on, 7, 0.3).rock).toBeCloseTo(poseAt(off, 7, 0.3).rock, 12);
+    const step = (effectiveEndRadius({ ...r, machine: { ...r.machine, fillEdge: true } }) - 0) / 29;
+    expect(poseAt(on, 29, 0).slideRadius - poseAt(on, 28, 0).slideRadius).toBeCloseTo(step, 9);
   });
 });

@@ -1,0 +1,74 @@
+{
+  "version": 2,
+  "name": "Grain Drift",
+  "seed": 0,
+  "mode": "metal",
+  "machine": {
+    "rosetteRadius": 60,
+    "rubberRadius": 0.4,
+    "workDiameter": 32,
+    "fillEdge": false
+  },
+  "rosettes": [
+    {
+      "id": "a",
+      "enabled": true,
+      "axis": "rock",
+      "lobes": 180,
+      "amplitude": 0.15,
+      "profile": "sine",
+      "phase": 0
+    }
+  ],
+  "slide": {
+    "startRadius": 4.5,
+    "endRadius": 15.5,
+    "passes": 45,
+    "phaseMode": "linear",
+    "phaseStep": 0.5,
+    "alternateEvery": 1,
+    "alternateFraction": 0.5,
+    "phaseCustom": [
+      0
+    ],
+    "amplitudeTaper": 1,
+    "spiral": false
+  },
+  "eccentric": {
+    "enabled": false,
+    "offset": 0,
+    "angle": 0,
+    "divisions": 1,
+    "divisionStep": 0
+  },
+  "elliptical": {
+    "enabled": false,
+    "e": 0,
+    "angle": 0
+  },
+  "ink": {
+    "palette": [
+      "#1d2a5c",
+      "#2f6b4f",
+      "#7a2a3a"
+    ],
+    "colorMode": "single",
+    "paper": "#f4efe4",
+    "lineWidth": 0.08,
+    "opacity": 0.92
+  },
+  "metal": {
+    "material": "silver",
+    "toolAngle": 140,
+    "baseDepth": 0.095,
+    "lightAngle": 30,
+    "lightElevation": 38,
+    "enamel": false,
+    "enamelColor": "#1b3fa0",
+    "enamelOpacity": 0.45
+  },
+  "symmetry": {
+    "order": 0,
+    "mirror": false
+  }
+}

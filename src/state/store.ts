@@ -6,6 +6,12 @@ export type WorkFrame = 'work' | 'machine';
 export type UiMode = 'simple' | 'advanced';
 export type CameraPreset = 'overview' | 'rosette' | 'tool';
 
+/** Plate tilt in the flat work view, degrees: x turns the plate about the screen's horizontal axis, y about its vertical axis. */
+export interface Tilt {
+  x: number;
+  y: number;
+}
+
 export interface PlaybackState {
   playing: boolean;
   /** Spindle revolutions per second (1 = real-ish speed). 0 = instant. */
@@ -23,6 +29,10 @@ export interface AppState {
   uiMode: UiMode;
   camera: CameraPreset;
   playback: PlaybackState;
+  /** View state (not in the recipe, history or share URL): the plate held at an angle in the work view. */
+  tilt: Tilt;
+  /** Slow automatic rocking of the tilted plate so the light plays across the cuts. */
+  shimmer: boolean;
 }
 
 type Listener = (state: AppState, prev: AppState) => void;
@@ -44,6 +54,8 @@ export class Store {
       uiMode: 'simple',
       camera: 'overview',
       playback: { playing: false, speed: 1, progress: 0 },
+      tilt: { x: 0, y: 0 },
+      shimmer: false,
       ...initial,
     };
   }

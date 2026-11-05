@@ -14,6 +14,9 @@ import enamelDial from './enamel-dial.json';
 import harlequin from './harlequin.json';
 import petals from './petals.json';
 import bluedFlame from './blued-flame.json';
+import grainDOrge from './grain-d-orge.json';
+import fineBarleycorn from './fine-barleycorn.json';
+import grainDrift from './grain-drift.json';
 
 const SOURCES: [string, unknown][] = [
   ['barleycorn', barleycorn],
@@ -28,6 +31,9 @@ const SOURCES: [string, unknown][] = [
   ['harlequin', harlequin],
   ['petals', petals],
   ['blued-flame', bluedFlame],
+  ['grain-d-orge', grainDOrge],
+  ['fine-barleycorn', fineBarleycorn],
+  ['grain-drift', grainDrift],
 ];
 
 export const PRESETS: { id: string; name: string; recipe: Recipe }[] = SOURCES.map(([id, data]) => {

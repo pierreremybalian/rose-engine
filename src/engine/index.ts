@@ -3,4 +3,6 @@ export * from './machine';
 export * from './chucks';
 export * from './simplify';
 export * from './rosette';
+export * from './plate';
+export * from './symmetry';
 export type * from './types';

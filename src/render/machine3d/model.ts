@@ -18,6 +18,7 @@ import { defaultRecipe, type Recipe, type Rosette } from '../../state/recipe';
 import type { CameraPreset } from '../../state/store';
 import type { Pose, Prepared } from '../../engine/types';
 import { rosettePhaseDeg, toolPoint, workPlacement } from '../../engine';
+import { maxUsefulRadius } from '../../engine/plate';
 import { createMaterials, type MachineMaterials } from './materials';
 import {
   TAU,
@@ -135,12 +136,13 @@ function computeLayout(recipe: Recipe): Layout {
   const zHW = (activePump >= 0 ? zPumpStand : zStackEnd) - 36;
   const ecc = recipe.eccentric.enabled ? Math.abs(recipe.eccentric.offset) : 0;
   const ell = recipe.elliptical.enabled ? Math.abs(recipe.elliptical.e) : 0;
-  const maxSlide = Math.max(Math.abs(recipe.slide.startRadius), Math.abs(recipe.slide.endRadius));
   const rc = Math.min(46, Math.max(18, q(D * 0.3, 2)));
   const need = Math.max(160, R0 + maxRockAmp + 22, D / 2 + ecc + ell + 16, 64);
   const H = BED_TOP + q(need, 10);
   const xRubber = q(R0 + maxRockAmp + Math.max(rv, 1.5) + 44, 2);
-  const wayX1 = q(Math.max(140, D / 2 + ecc + ell + 30, maxSlide + 60), 10);
+  // Slide ways (and with them the bed and bench) are sized for the plate, not the current slide radius, so
+  // dragging start / end radius (or Fill to edge) never resizes the table. maxUsefulRadius is the slider max.
+  const wayX1 = q(Math.max(140, maxUsefulRadius(recipe) + 60), 10);
   return {
     H,
     L: H - PIVOT_Y,

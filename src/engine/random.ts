@@ -8,10 +8,21 @@
 //   - extra rosettes use musically related lobe counts (multiples / divisors of the primary).
 // Locked values (recipe dot-paths, 'rosettes.<id>.<key>', 'rosettes.<id>', or 'rosettes' for the whole stack)
 // always survive unchanged; families read locked values and adapt the free ones around them.
+//
+// Plate view-state (machine.fillEdge, symmetry) is kept from `current` when locked (the UI default) and drawn
+// first otherwise, so every family builds for it:
+//   - Fill to edge: the engine runs the cut to effectiveEndRadius (plate + chuck reach + rock reach + margin), so
+//     pass counts and spacing are solved over that span and the spacing / coverage rules hold over the real cut.
+//   - Symmetry order N: lobes are multiples of N (no coprime beat partners), eccentric divisions = N evenly
+//     spaced, spirals only as N-start spirals. Mirror: symmetric profiles, peaks on 12 o'clock, no twist.
+//   enforceSymmetry() runs last as a safety net (metal coverage is re-fitted if it changed anything).
 import { RECIPE_VERSION, cloneRecipe, newRosetteId } from '../state/recipe';
 import type { ColorMode, MetalKind, PhaseMode, ProfileKind, Recipe, Rosette, RosetteAxis } from '../state/recipe';
 import { PALETTES, PARAMS, ROSETTE_PARAMS, clampParam, getPath, setPath } from '../state/params';
 import type { ParamDef } from '../state/params';
+import { profileValue } from './rosette';
+import { FILL_MARGIN, effectiveEndRadius, plateRadius } from './plate';
+import { enforceSymmetry } from './symmetry';
 
 const TAU = Math.PI * 2;
 const MAX_ROSETTES = 8;
@@ -102,20 +113,51 @@ function fitNumber(def: NumDef | undefined, v: number): number {
 
 const PROFILES: ProfileKind[] = ['sine', 'convex', 'concave', 'flame', 'square', 'saw'];
 
+/** Profiles that are not symmetric about their peak: ruled out by mirror symmetry. */
+const ASYMMETRIC = new Set<ProfileKind>(['flame', 'saw']);
+
+/** Largest lobe count a rosette can have (the lobes param max). */
+const LOBES_MAX = ROSETTE_PARAM_BY_KEY.get('lobes')?.max ?? 300;
+
+/**
+ * Ceiling for lobe counts derived from a primary of L lobes: the classic 96 for classic counts, one octave above
+ * fine (metal grain) primaries, never past LOBES_MAX. Keeps the draws musical rather than filling up to 300.
+ */
+function lobeCeiling(L: number): number {
+  return Math.min(LOBES_MAX, Math.max(96, 2 * L));
+}
+
+/** Nearest multiple of the symmetry order N (at least N, at most LOBES_MAX); n unchanged when N < 2. */
+function snapLobes(n: number, N: number): number {
+  if (N < 2) return n;
+  return Math.min(Math.floor(LOBES_MAX / N) * N, Math.max(N, Math.round(n / N) * N));
+}
+
+/**
+ * Rosette phase (degrees, in [0, 360/L)) that puts a peak on 12 o'clock: u(ψ = 90°) = L/4 + phase·L/360 is whole
+ * (machine.ts), i.e. phase ≡ 270 (mod 360/L). Exact (not snapped to the 0.5° slider step), as enforceSymmetry wants.
+ */
+export function mirrorPhase(lobes: number): number {
+  const P = 360 / Math.max(1, Math.round(lobes));
+  const v = ((270 % P) + P) % P;
+  return P - v < 1e-6 ? 0 : v;
+}
+
 function divisorsOf(n: number, min = 2): number[] {
   const out: number[] = [];
   for (let d = min; d < n; d++) if (n % d === 0) out.push(d);
   return out;
 }
 
-/** A lobe count musically related to L: multiples for fine texture, divisors for slow beats. */
-function relatedLobes(rng: Rng, L: number, prefer: 'up' | 'down' | 'any' = 'any'): number {
-  const up = [2, 3, 4].map((k) => L * k).filter((n) => n <= 96);
-  const down = divisorsOf(L, 2).filter((d) => d >= 2 && d < L);
+/** A lobe count musically related to L: multiples for fine texture, divisors for slow beats (multiples of N only). */
+function relatedLobes(rng: Rng, L: number, prefer: 'up' | 'down' | 'any' = 'any', N = 0): number {
+  const ceil = lobeCeiling(L);
+  const up = [2, 3, 4].map((k) => L * k).filter((n) => n <= ceil && (N < 2 || n % N === 0));
+  const down = divisorsOf(L, 2).filter((d) => d >= 2 && d < L && (N < 2 || d % N === 0));
   const pool: [number, number][] = [];
   if (prefer !== 'down') up.forEach((n, i) => pool.push([n, i === 0 ? 3 : 1.5]));
   if (prefer !== 'up') down.forEach((n) => pool.push([n, 1]));
-  if (!pool.length) return L >= 2 ? Math.max(1, Math.round(L / 2)) : 2;
+  if (!pool.length) return N >= 2 ? snapLobes(L, N) : L >= 2 ? Math.max(1, Math.round(L / 2)) : 2;
   return rng.weighted(pool);
 }
 
@@ -209,6 +251,22 @@ class Ctx {
   readonly s: number;
   /** Max extent of the pattern from the work centre, mm. */
   readonly rMax: number;
+  /** Plate radius as the engine sees it (plate.ts). */
+  readonly plateR: number;
+  /** Fill to edge: the engine runs the cut to effectiveEndRadius; families solve spacing over that span. */
+  fill = false;
+  /** Symmetry order (0 = free): lobes are multiples of N. */
+  N = 0;
+  /** Mirror symmetry about 12–6: symmetric profiles, peaks on 12 o'clock, no twist. */
+  mirror = false;
+  /** Fill: the pass step the family wants; passes are re-fitted to it once the real rock reach is known. */
+  fillStep = 0;
+  /** Fill: most passes the family allows (rosace budgets rings × divisions). */
+  fillMaxPasses = Infinity;
+  /** Pass count must be a multiple of this (basket weave groups). */
+  passMultiple = 1;
+  /** Metal: shallowest groove width / widest gap chosen by styleMetal (kept when the geometry is re-fitted). */
+  coverageK = 1.1;
   private pool: Slot[] = [];
   readonly slots: Slot[] = [];
   /** Filled in by families for styling (line width / cut depth vs line spacing). */
@@ -231,6 +289,7 @@ class Ctx {
     const R = Math.max(10, (cur.machine?.workDiameter ?? 100) / 2);
     this.s = R / 50;
     this.rMax = R - 2 * this.s;
+    this.plateR = plateRadius(cur);
     const keep = cur.rosettes.filter((r) => locks.stack || locks.rosettes.has(r.id));
     this.pool = keep.map((r) => new Slot(structuredClone(r), locks.stack ? 'all' : locks.rosettes.get(r.id)!, true));
   }
@@ -253,6 +312,13 @@ class Ctx {
   }
   get<T>(path: string): T {
     return getPath(this.out, path) as T;
+  }
+
+  /** A profile table with the asymmetric profiles removed under mirror symmetry. */
+  profiles(table: [ProfileKind, number][]): [ProfileKind, number][] {
+    if (!this.mirror) return table;
+    const ok = table.filter(([k]) => !ASYMMETRIC.has(k));
+    return ok.length ? ok : [['sine', 1]];
   }
 
   /** Allocate a rosette for a role. Kept (locked) rosettes are reused first, fresh ones get new ids. */
@@ -325,6 +391,8 @@ interface RingOpts {
   spacingMul?: number;
   /** Continuous spiral: the radius ramps over `passes` turns, so step = span / passes. */
   spiral?: boolean;
+  /** Metal: keep A on the ratio (start far enough out for the wavelength rule) rather than shrink A to fit. */
+  keepRatio?: boolean;
   /** Chance of running the cut right into the centre (start radius 0). Near the axis the rock carries the
    *  cutter across the centre, so the inner passes close into a star / rose the way a real engine's do. */
   centre?: number;
@@ -375,6 +443,55 @@ function ringGeometry(ctx: Ctx, p: Slot, L: number, o: RingOpts): RingResult {
     return Math.max(2, n);
   };
 
+  if (ctx.fill) {
+    // Fill to edge: the engine ignores slide.endRadius and cuts out to plate + chuck reach + rock reach + margin,
+    // so the span depends on the amplitude, which depends on the step. Hold the step the contained design would
+    // use (metal: the target spacing; ink: the drawn pass count over the nominal span) and solve E = rim + A·T.
+    const rim = ctx.plateR + reserve + FILL_MARGIN;
+    const nominal = end;
+    // The start is the contained design's start (same rule, against the nominal end), so the fill only adds
+    // passes outward at the same step.
+    let stepWant: number;
+    if (ampLocked) {
+      A = p.r.amplitude;
+      start = ctx.num('slide.startRadius', toCentre ? 0 : Math.max(startWish, inner + c * A, o.minStart ?? 0));
+      stepWant = A > 0 ? A / ratio : Math.abs(nominal - start) / 30;
+      if (metalSp) stepWant = Math.min(1, Math.max(metalSp, stepWant));
+    } else {
+      const n0 = o.passesFixed ?? (metalSp ? passesForSpan(Math.abs(nominal - startWish), metalSp) : rng.int(o.passes[0], o.passes[1]));
+      const n1 = Math.max(1, n0 - 1);
+      let startMin = (inner * n1 + c * ratio * nominal) / (n1 + c * ratio);
+      if (metalSp && o.keepRatio) startMin = Math.max(startMin, inner + c * ratio * metalSp);
+      start = ctx.num('slide.startRadius', toCentre ? 0 : Math.max(startWish, startMin, o.minStart ?? 0));
+      stepWant = metalSp || Math.abs(nominal - start) / Math.max(1, o.spiral ? n0 : n1);
+    }
+    // Never past the rim (a locked or degenerate start): keep at least a few passes on the plate.
+    stepWant = Math.max(0.02, Math.min(stepWant, Math.max(0.05, (rim - start) / 4)));
+    let E = rim + (ampLocked ? A : ratio * stepWant) * T;
+    passes = 2;
+    for (let iter = 0; iter < 8; iter++) {
+      passes = ctx.num('slide.passes', o.passesFixed ?? passesForSpan(Math.max(0.1, E - start), stepWant));
+      if (ampLocked) break;
+      const span = Math.max(0.1, E - start);
+      const step = o.spiral ? span / Math.max(1, passes) : passes > 1 ? span / (passes - 1) : span;
+      A = ratio * step;
+      if (start - inner > 0) A = Math.min(A, (TAU * (start - inner)) / (L * o.kLambda));
+      A = Math.min(A, (TAU * Math.max(0.5, E - inner)) / (L * o.kLambda * T));
+      const next = rim + A * T;
+      const done = Math.abs(next - E) < 1e-3;
+      E = next;
+      if (done) break;
+    }
+    if (!ampLocked) A = p.num('amplitude', Math.max(0.05, A));
+    ctx.fillStep = stepWant;
+    ctx.passMultiple = o.passMultiple ?? 1;
+    // Engine ignores it while filling; the plate radius keeps the pattern sensible if Fill is turned off.
+    ctx.num('slide.endRadius', ctx.plateR);
+    const span = Math.max(0.1, E - start);
+    const step = o.spiral ? span / Math.max(1, passes) : passes > 1 ? span / (passes - 1) : span;
+    return { start, end: E, passes, step, A };
+  }
+
   if (ampLocked) {
     A = p.r.amplitude;
     start = ctx.num('slide.startRadius', toCentre ? 0 : Math.max(startWish, inner + c * A, o.minStart ?? 0));
@@ -387,7 +504,9 @@ function ringGeometry(ctx: Ctx, p: Slot, L: number, o: RingOpts): RingResult {
     passes = ctx.num('slide.passes', o.passesFixed ?? (metalSp ? passesForSpan(Math.abs(end - startWish), metalSp) : rng.int(o.passes[0], o.passes[1])));
     let n1 = Math.max(1, passes - 1);
     // Solve start − inner ≥ c × ratio × (end − start) / n1 for the smallest start.
-    const startMin = (inner * n1 + c * ratio * end) / (n1 + c * ratio);
+    let startMin = (inner * n1 + c * ratio * end) / (n1 + c * ratio);
+    // Metal re-fits the pass count below, which pins the step to the target spacing: the rule fixes the start.
+    if (metalSp && o.keepRatio) startMin = Math.max(startMin, inner + c * ratio * metalSp);
     start = ctx.num('slide.startRadius', toCentre ? 0 : Math.max(startWish, startMin, o.minStart ?? 0));
     if (metalSp) {
       // The start moved in: re-fit the pass count to the real span so the spacing stays on target.
@@ -465,7 +584,7 @@ interface PrimaryInfo {
 
 const STACK_DEFAULT: [number, number][] = [[1, 9], [2, 46], [3, 28], [4, 17]];
 
-const PROFILE_WEIGHTS: [ProfileKind, number][] = [['sine', 4], ['convex', 2], ['concave', 1.5], ['flame', 1], ['square', 0.6], ['saw', 0.5]];
+const PROFILE_WEIGHTS: [ProfileKind, number][] = [['sine', 4], ['convex', 2], ['concave', 1.5], ['triangle', 1.2], ['flame', 1], ['square', 0.6], ['saw', 0.5]];
 
 function gcd(a: number, b: number): number {
   while (b) [a, b] = [b, a % b];
@@ -475,19 +594,25 @@ function gcd(a: number, b: number): number {
 /**
  * A lobe count for a secondary rosette, musically related to the primary L: multiples (fine texture),
  * divisors (slow undulation) or a near-coprime partner (12 + 5, 18 + 7: beats and moiré).
+ * Symmetry order N ≥ 2: multiples of N only, so no coprime beat partners.
  */
-function secondaryLobes(rng: Rng, L: number, used: Set<number>): number {
-  const ok = (n: number) => n >= 3 && n <= 96 && !used.has(n);
+function secondaryLobes(rng: Rng, L: number, used: Set<number>, N = 0): number {
+  const ceil = lobeCeiling(L);
+  const ok = (n: number) => n >= 3 && n <= ceil && !used.has(n) && (N < 2 || n % N === 0);
   const mult = [2, 3, 4].map((k) => L * k).filter(ok);
   const div = divisorsOf(L, 2).filter(ok);
   const lo = Math.max(3, Math.round(L * 0.3));
   const hi = Math.max(lo, Math.round(L * 0.75));
   const cop: number[] = [];
-  for (let m = lo; m <= hi; m++) if (gcd(m, L) === 1 && ok(m)) cop.push(m);
+  if (N < 2) for (let m = lo; m <= hi; m++) if (gcd(m, L) === 1 && ok(m)) cop.push(m);
   const cats: [number[], number][] = [[mult, 0.45], [div, 0.35], [cop, 0.2]];
   const live = cats.filter(([c]) => c.length);
   if (!live.length) {
-    for (let n = L + 1; n <= 96; n++) if (ok(n)) return n;
+    if (N >= 2) {
+      for (let n = N; n <= LOBES_MAX; n += N) if (n !== L && !used.has(n)) return n;
+      return snapLobes(L, N);
+    }
+    for (let n = L + 1; n <= ceil; n++) if (ok(n)) return n;
     return Math.max(2, L - 1);
   }
   const cat = rng.weighted(live);
@@ -506,9 +631,9 @@ function compound(ctx: Ctx): void {
   const [f0, f1] = P.frac ?? [0.2, 0.7];
   for (let i = 1; i < ctx.stackN; i++) {
     const q = ctx.rosette('rock');
-    const L2 = q.num('lobes', secondaryLobes(rng, P.L, used));
+    const L2 = q.num('lobes', secondaryLobes(rng, P.L, used, ctx.N));
     used.add(L2);
-    q.profile(rng.weighted(PROFILE_WEIGHTS.filter(([k]) => k !== P.slot.r.profile)));
+    q.profile(rng.weighted(ctx.profiles(PROFILE_WEIGHTS.filter(([k]) => k !== P.slot.r.profile))));
     q.num('phase', rng.float(0, 360));
     secs.push({ q, f: rng.float(f0, f1), L: L2 });
   }
@@ -516,22 +641,28 @@ function compound(ctx: Ctx): void {
   const sumF = secs.reduce((a, x) => a + x.f, 0);
   const A1 = P.slot.num('amplitude', Math.max(0.05, P.A / (1 + sumF)));
   const T = Math.max(1, P.taper);
+  // Visibility floor, but never above the smallest share: on fine metal work a flat 0.02 mm would push the
+  // summed amplitude past the family's budget (barleycorn's peaks would cross the next pass's troughs).
+  const floor = Math.min(0.02, f0 * A1);
   for (const x of secs) {
     // Each secondary still obeys the wavelength rule at its own lobe count.
     let cap = (TAU * Math.max(0.5, P.rOut)) / (x.L * P.kLambda * T);
     if (P.rIn > 0) cap = Math.min(cap, (TAU * P.rIn) / (x.L * P.kLambda));
-    x.q.num('amplitude', Math.max(0.02, Math.min(x.f * A1, cap)));
+    x.q.num('amplitude', Math.max(floor, Math.min(x.f * A1, cap)));
   }
 }
 
-function pumpLobes(rng: Rng, L: number, used: Set<number>): number {
-  const ok = (n: number) => n >= 2 && n <= 96 && !used.has(n);
+/** Pump lobes: slow divisors, the primary itself or its double, rare coprime pulses. Symmetry N: multiples of N only. */
+function pumpLobes(rng: Rng, L: number, used: Set<number>, N = 0): number {
+  const cap = N >= 2 ? LOBES_MAX : 96;
+  const ok = (n: number) => n >= 2 && n <= cap && !used.has(n) && (N < 2 || n % N === 0);
   const opts: [number, number][] = [];
   for (const d of divisorsOf(L, 2)) if (d <= 24 && ok(d)) opts.push([d, 1.5]);
   if (ok(L)) opts.push([L, 2]);
   if (ok(L * 2)) opts.push([L * 2, 1]);
-  for (const m of [5, 7, 9, 11]) if (gcd(m, L) === 1 && m < L && ok(m)) opts.push([m, 0.4]);
-  return opts.length ? rng.weighted(opts) : Math.max(2, Math.round(L / 2));
+  if (N < 2) for (const m of [5, 7, 9, 11]) if (gcd(m, L) === 1 && m < L && ok(m)) opts.push([m, 0.4]);
+  if (opts.length) return rng.weighted(opts);
+  return N >= 2 ? snapLobes(L, N) : Math.max(2, Math.round(L / 2));
 }
 
 /** Pump (face) rosettes: depth in metal, pen width in ink. Metal amplitudes are sized later by styleMetal. */
@@ -540,8 +671,8 @@ function addPumps(ctx: Ctx, L: number, count: number): void {
   const used = new Set<number>();
   for (let i = 0; i < count; i++) {
     const q = ctx.rosette('pump');
-    used.add(q.num('lobes', pumpLobes(rng, L, used)));
-    q.profile(rng.weighted<ProfileKind>([['sine', 4], ['convex', 2], ['square', 1], ['flame', 1]]));
+    used.add(q.num('lobes', pumpLobes(rng, L, used, ctx.N)));
+    q.profile(rng.weighted<ProfileKind>(ctx.profiles([['sine', 4], ['convex', 2], ['square', 1], ['flame', 1]])));
     q.num('phase', rng.float(0, 360));
     q.num('amplitude', pumpAmplitude(ctx) / count);
   }
@@ -571,7 +702,17 @@ interface Family {
 const LOBES_CLASSIC: [number, number][] = [[8, 1], [10, 1], [12, 3], [15, 1], [16, 2], [18, 2], [20, 2], [24, 3], [30, 1], [32, 1], [36, 2]];
 
 function primaryLobes(p: Slot, ctx: Ctx, table: [number, number][]): number {
-  return p.num('lobes', ctx.rng.weighted(table));
+  // Symmetry: each entry moves to its nearest multiple of N (same single draw, so free runs are unchanged).
+  return p.num('lobes', ctx.rng.weighted(ctx.N >= 2 ? table.map(([n, w]) => [snapLobes(n, ctx.N), w] as [number, number]) : table));
+}
+
+/**
+ * Metal barleycorn lobes: each grain (one lobe long, two spacings tall) about `aspect` × as long as it is tall at
+ * 60 % of the work radius, as on a real dial (≈ 200 lobes at 0.25 mm on 32 mm). Snapped to a multiple of 6.
+ */
+function grainLobes(ctx: Ctx, aspect: number): number {
+  const L = (TAU * 0.6 * ctx.rMax) / (aspect * 2 * ctx.metalSpacing);
+  return snapLobes(Math.max(24, Math.min(240, Math.round(L / 6) * 6)), ctx.N);
 }
 
 const barleycorn: Family = {
@@ -584,14 +725,20 @@ const barleycorn: Family = {
     const { rng } = ctx;
     ctx.set('slide.phaseMode', 'alternate');
     ctx.set('slide.alternateEvery', 1);
-    ctx.set('slide.alternateFraction', rng.weighted([[0.5, 6], [1 / 3, 1], [0.25, 1]]));
-    const taper = ctx.num('slide.amplitudeTaper', rng.chance(0.7) ? 1 : rng.float(0.75, 1.5));
+    // Mirror: only a half-lobe offset keeps the offset passes symmetric about 12–6.
+    const frac = rng.weighted([[0.5, 6], [1 / 3, 1], [0.25, 1]]);
+    ctx.set('slide.alternateFraction', ctx.mirror ? 0.5 : frac);
+    // A gentle taper only: much past 1.15 the outer passes cross into loops again (2·A·taper > ~1.4 s).
+    const taper = ctx.num('slide.amplitudeTaper', rng.chance(0.7) ? 1 : rng.float(0.8, 1.15));
     const p = ctx.rosette('rock');
-    const L = primaryLobes(p, ctx, LOBES_CLASSIC);
-    p.profile(rng.weighted<ProfileKind>([['sine', 6], ['convex', 2], ['concave', 1], ['square', 0.7]]));
+    // Metal's fine spacing would stretch classic lobe counts into slivers: size the grain instead.
+    const L = ctx.metalSpacing > 0 ? p.num('lobes', grainLobes(ctx, rng.float(1.8, 4))) : primaryLobes(p, ctx, LOBES_CLASSIC);
+    p.profile(rng.weighted<ProfileKind>(ctx.profiles([['sine', 6], ['triangle', 3], ['convex', 2], ['concave', 1], ['square', 0.7]])));
     p.num('phase', rng.float(0, 360));
-    const g = ringGeometry(ctx, p, L, { passes: [24, 60], start: [2, 12], end: [40, 47], ratio: [0.75, 1.3], kLambda: 3, taper, centre: 0.5 });
-    ctx.primary = { slot: p, L, A: g.A, rIn: g.start, rOut: g.end, kLambda: 3, taper, frac: [0.2, 0.55] };
+    // 2·ΣA ≈ 0.9–1.2 × the pass spacing: each pass's peaks just touch the next pass's troughs, so the cuts close
+    // into grain-shaped cells (raised diamonds in metal) instead of crossing into loops. Quiet companions only.
+    const g = ringGeometry(ctx, p, L, { passes: [24, 60], start: [2, 12], end: [40, 47], ratio: [0.45, 0.6], kLambda: 3, taper, centre: 0.5, keepRatio: true });
+    ctx.primary = { slot: p, L, A: g.A, rIn: g.start, rOut: g.end, kLambda: 3, taper, frac: [0.1, 0.3] };
     ctx.spacing = g.step;
   },
 };
@@ -608,10 +755,13 @@ const basket: Family = {
     ctx.set('slide.phaseMode', 'alternate');
     const k = ctx.num('slide.alternateEvery', rng.weighted([[2, 3], [3, 3], [4, 2], [5, 1]]));
     ctx.set('slide.alternateFraction', 0.5);
+    // Metal: anti-phased groups leave gaps of up to (1 + k) × the spacing; keep them within a 150° graver's
+    // reach at the 0.4 mm depth cap so the weave is still cut right through.
+    if (ctx.metalSpacing > 0) ctx.metalSpacing = Math.min(ctx.metalSpacing, 2.2 / (1 + k));
     ctx.set('slide.amplitudeTaper', 1);
     const p = ctx.rosette('rock');
     const L = primaryLobes(p, ctx, [[6, 1], [8, 2], [10, 1], [12, 3], [16, 2], [20, 1], [24, 1]]);
-    const prof = p.profile(rng.weighted<ProfileKind>([['square', 4], ['sine', 3], ['convex', 2]]));
+    const prof = p.profile(rng.weighted<ProfileKind>(ctx.profiles([['square', 4], ['sine', 3], ['convex', 2]])));
     p.num('phase', rng.float(0, 360));
     const groups = rng.int(7, 13);
     const g = ringGeometry(ctx, p, L, {
@@ -643,7 +793,7 @@ const moire: Family = {
     const taper = ctx.num('slide.amplitudeTaper', rng.chance(0.5) ? 1 : rng.float(0.6, 1.8));
     const p = ctx.rosette('rock');
     const L = primaryLobes(p, ctx, [[3, 1], [4, 1.5], [5, 1.5], [6, 2], [7, 1], [8, 2], [9, 1], [10, 1.5], [12, 2], [14, 1], [16, 1], [18, 1], [24, 1]]);
-    p.profile(rng.weighted<ProfileKind>([['sine', 7], ['convex', 1.5], ['flame', 1]]));
+    p.profile(rng.weighted<ProfileKind>(ctx.profiles([['sine', 7], ['convex', 1.5], ['flame', 1]])));
     p.num('phase', rng.float(0, 360));
     const g = ringGeometry(ctx, p, L, { passes: [60, 130], start: [0, 10], end: [40, 47], ratio: [1.5, 4.5], kLambda: 2.6, taper, centre: 0.55 });
     ctx.num('slide.phaseStep', rng.sign() * driftStep(L, g.passes, rng.float(0.6, 2.5)));
@@ -664,7 +814,7 @@ const flame: Family = {
     const taper = ctx.num('slide.amplitudeTaper', rng.chance(0.7) ? rng.float(1.1, 2.2) : 1);
     const p = ctx.rosette('rock');
     const L = primaryLobes(p, ctx, [[6, 1], [8, 2], [9, 1], [10, 2], [12, 3], [14, 1], [16, 2], [18, 1], [20, 1], [24, 1]]);
-    p.profile(rng.weighted<ProfileKind>([['flame', 7], ['saw', 1.5], ['sine', 1.5]]));
+    p.profile(rng.weighted<ProfileKind>(ctx.profiles([['flame', 7], ['saw', 1.5], ['sine', 1.5]])));
     p.num('phase', rng.float(0, 360));
     const g = ringGeometry(ctx, p, L, { passes: [40, 100], start: [2, 10], end: [40, 47], ratio: [2.5, 5.5], kLambda: 2.4, taper, centre: 0.5 });
     ctx.num('slide.phaseStep', rng.sign() * driftStep(L, g.passes, rng.float(0.4, 1.6)));
@@ -686,7 +836,7 @@ const sunburst: Family = {
     const taper = ctx.num('slide.amplitudeTaper', rng.float(1.6, 2.8));
     const p = ctx.rosette('rock');
     const L = primaryLobes(p, ctx, [[36, 1], [48, 2], [60, 2], [72, 2], [90, 1], [96, 1]]);
-    p.profile(rng.weighted<ProfileKind>([['concave', 5], ['sine', 3], ['saw', 1.5]]));
+    p.profile(rng.weighted<ProfileKind>(ctx.profiles([['concave', 5], ['sine', 3], ['saw', 1.5]])));
     p.num('phase', rng.float(0, 360));
     const g = ringGeometry(ctx, p, L, { passes: [60, 130], start: [10, 22], end: [42, 47], ratio: [2, 4.5], kLambda: 1.7, taper, centre: 0.45 });
     // Straight rays, or a gentle curve (needs a full slider step per pass to register).
@@ -706,13 +856,19 @@ const rosace: Family = {
   requires: { 'eccentric.enabled': true, 'slide.spiral': false },
   build(ctx) {
     const { rng, s } = ctx;
+    const metal = ctx.metalSpacing > 0;
     ctx.configuredEccentric = true;
     ctx.set('eccentric.enabled', true);
-    const D = ctx.num('eccentric.divisions', rng.int(5, 16));
+    const dDraw = rng.int(5, 16);
+    // Symmetry N: N evenly spaced divisions make the bloom N-fold. Fill: 3–8 divisions, since every ring set
+    // covers the whole plate.
+    const D = ctx.num('eccentric.divisions', ctx.N >= 2 ? ctx.N : ctx.fill ? 3 + Math.round(((dDraw - 5) * 5) / 11) : dDraw);
     ctx.set('eccentric.divisionStep', 0);
-    ctx.set('eccentric.angle', rng.weighted([[0, 2], [90, 1], [rng.float(0, 360), 1]]));
+    const ang = rng.weighted([[0, 2], [90, 1], [rng.float(0, 360), 1]]);
+    // Mirror: the bloom's first centre on the 12–6 axis (each ring set is symmetric about its own radial line).
+    ctx.set('eccentric.angle', ctx.mirror ? (ang < 180 ? 90 : 270) : ang);
     const p = ctx.rosette('rock');
-    p.profile(rng.weighted<ProfileKind>([['sine', 5], ['convex', 2], ['concave', 1.5]]));
+    p.profile(rng.weighted<ProfileKind>(ctx.profiles([['sine', 5], ['convex', 2], ['concave', 1.5]])));
     p.num('phase', rng.float(0, 360));
 
     // Size the bloom to fill the dial: offset + circle radius + band + amplitude ≈ fill × rMax.
@@ -720,7 +876,7 @@ const rosace: Family = {
     const passChoices: [number, number][] = [[1, 1], [2, 2], [3, 2], [4, 2], [6, 1.5], [8, 1], [12, 0.7]];
     let passes: number;
     let band: number;
-    if (ctx.metalSpacing > 0) {
+    if (metal) {
       // Metal: each circle is a band of touching grooves (2.5–7 mm wide).
       const sp = ctx.metalSpacing;
       passes = ctx.num('slide.passes', Math.max(4, Math.min(Math.floor(480 / D), Math.round((rng.float(2.5, 7) * s) / sp) + 1)));
@@ -732,24 +888,52 @@ const rosace: Family = {
     const ampWish = rng.weighted([[0, 0.5], [rng.float(0.3, 1.2) * s, 4.5]]);
     const fill = rng.float(0.82, 0.97) * ctx.rMax;
     const q = rng.float(0.7, 1.5); // circle radius / offset: < 1 leaves an eye in the centre, > 1 overlaps it
-    const e = ctx.num('eccentric.offset', Math.max(2 * s, (fill - band - ampWish) / (1 + q)));
-    const R1 = Math.max(2 * s, Math.min(q * e, fill - e - band - ampWish));
-    const start = ctx.num('slide.startRadius', R1);
-    const end = ctx.num('slide.endRadius', start + band);
+    let e: number;
+    let start: number;
+    let end: number;
+    if (ctx.fill) {
+      // Fill to edge: each division's rings run out past the far rim (plate + offset from its own centre), so the
+      // D ring sets overlap over the whole plate. Far-apart centres cross the rings steeply into noise; a small
+      // offset (5–15 % of the plate) keeps them nearly concentric, and they interfere into a D-petal moiré bloom.
+      e = ctx.num('eccentric.offset', Math.max(s, (0.05 + (0.1 * (q - 0.7)) / 0.8) * fill));
+      start = ctx.num('slide.startRadius', Math.max(s, q * e));
+      end = start;
+    } else {
+      e = ctx.num('eccentric.offset', Math.max(2 * s, (fill - band - ampWish) / (1 + q)));
+      const R1 = Math.max(2 * s, Math.min(q * e, fill - e - band - ampWish));
+      start = ctx.num('slide.startRadius', R1);
+      end = ctx.num('slide.endRadius', start + band);
+    }
     const rMin = Math.max(0.5, Math.min(start, end));
 
     // Lobes that are a multiple of the divisions keep the bloom symmetric; cap so lobes stay readable.
     const maxL = Math.max(3, Math.floor((TAU * rMin) / (3.2 * Math.max(0.3, ampWish))));
-    const lobeChoices: [number, number][] = [[D, 1], [2 * D, 2], [3 * D, 1], [rng.pick([6, 8, 10, 12, 16, 18, 24]), 2]];
-    const fit = lobeChoices.filter(([n]) => n >= 3 && n <= Math.min(48, maxL));
-    const L = p.num('lobes', rng.weighted(fit.length ? fit : [[Math.min(maxL, 12), 1]]));
+    const lobeChoices: [number, number][] = [[D, 1], [2 * D, 2], [3 * D, 1], [snapLobes(rng.pick([6, 8, 10, 12, 16, 18, 24]), ctx.N), 2]];
+    const fit = lobeChoices.filter(([n]) => n >= 3 && n <= Math.min(48, maxL) && (ctx.N < 2 || n % ctx.N === 0));
+    const fallback = ctx.N >= 2 ? ctx.N : Math.min(maxL, 12);
+    const L = p.num('lobes', rng.weighted(fit.length ? fit : [[fallback, 1]]));
     const A = p.num('amplitude', Math.min(ampWish, (TAU * rMin) / (L * 3.2)));
+
+    if (ctx.fill) {
+      // Ring count is budgeted against the divisions (ink ≤ 320 circles, metal ≤ 640 grooves); ink rings sit
+      // 1.2–2.4 mm apart so the moiré reads. The effective end is re-measured once the stack is final (fillFit).
+      const E = ctx.plateR + e + A + FILL_MARGIN;
+      const span = Math.max(1, E - start);
+      ctx.fillMaxPasses = Math.max(3, Math.floor((metal ? 640 : 320) / D));
+      const sp = metal ? ctx.metalSpacing : rng.float(1.2, 2.4) * s;
+      passes = ctx.num('slide.passes', Math.max(3, Math.min(ctx.fillMaxPasses, Math.round(span / sp) + 1)));
+      ctx.fillStep = span / Math.max(1, passes - 1);
+      ctx.num('slide.endRadius', ctx.plateR);
+      end = E;
+    }
     if (passes > 1) {
       const mode = ctx.set('slide.phaseMode', rng.chance(0.5) ? 'alternate' : 'linear') as PhaseMode;
       if (mode === 'linear') ctx.num('slide.phaseStep', rng.sign() * driftStep(L, passes, rng.float(0.1, 0.5)));
     }
     if (A > 0) ctx.primary = { slot: p, L, A, rIn: rMin, rOut: Math.max(start, end), kLambda: 3.2, taper: 1 };
     ctx.spacing = passes > 1 ? Math.abs(end - start) / (passes - 1) : 1.2;
+    // Fill: D ring sets overlap everywhere; a pen sized for one set would ink them into a mesh.
+    if (ctx.fill) ctx.spacing = Math.min(ctx.spacing, 1.2 * s) / Math.sqrt(D);
   },
 };
 
@@ -764,27 +948,37 @@ const cartouche: Family = {
     ctx.configuredElliptical = true;
     ctx.set('elliptical.enabled', true);
     const e = ctx.num('elliptical.e', rng.float(4, 12) * s);
-    ctx.set('elliptical.angle', rng.weighted([[0, 3], [90, 2], [rng.float(0, 180), 1]]));
-    const alt = rng.chance(0.6) && !ctx.locked('slide.phaseMode') ? true : ctx.get<PhaseMode>('slide.phaseMode') === 'alternate';
+    const ang = rng.weighted([[0, 3], [90, 2], [rng.float(0, 180), 1]]);
+    // Mirror: the ellipse's axes on 12–6 / 3–9 (it is symmetric about both).
+    ctx.set('elliptical.angle', ctx.mirror ? (ang < 45 || ang > 135 ? 0 : 90) : ang);
+    // Mirror rules out the twisting linear drift: alternate unless the phase mode is locked.
+    const altDraw = rng.chance(0.6);
+    const alt = (altDraw || ctx.mirror) && !ctx.locked('slide.phaseMode') ? true : ctx.get<PhaseMode>('slide.phaseMode') === 'alternate';
     ctx.set('slide.phaseMode', alt ? 'alternate' : 'linear');
     if (alt) {
       ctx.set('slide.alternateEvery', rng.weighted([[1, 4], [2, 1]]));
       ctx.set('slide.alternateFraction', 0.5);
     }
     const p = ctx.rosette('rock');
-    const L = primaryLobes(p, ctx, [[12, 2], [16, 2], [18, 1], [20, 2], [24, 2], [30, 1], [36, 1]]);
-    p.profile(rng.weighted<ProfileKind>([['sine', 5], ['convex', 2], ['concave', 1]]));
+    // Metal alternate is a barleycorn on an oval: size the grain, or classic counts stretch into slivers.
+    const L =
+      ctx.metalSpacing > 0 && alt
+        ? p.num('lobes', grainLobes(ctx, rng.float(1.8, 4)))
+        : primaryLobes(p, ctx, [[12, 2], [16, 2], [18, 1], [20, 2], [24, 2], [30, 1], [36, 1]]);
+    p.profile(rng.weighted<ProfileKind>(ctx.profiles([['sine', 5], ['convex', 2], ['concave', 1]])));
     p.num('phase', rng.float(0, 360));
     const g = ringGeometry(ctx, p, L, {
       passes: [22, 50],
       start: [2, 8],
       end: [40, 46],
-      ratio: alt ? [0.75, 1.25] : [1.5, 3.5],
+      ratio: alt ? [0.45, 0.6] : [1.5, 3.5],
       kLambda: 3,
       taper: 1,
       outerReserve: e,
       innerReserve: e,
       minStart: e + 2 * s,
+      // Metal grain: start far enough out for the wavelength rule rather than flatten the grain.
+      keepRatio: alt,
     });
     if (!alt) ctx.num('slide.phaseStep', rng.sign() * driftStep(L, g.passes, rng.float(0.5, 1.5)));
     ctx.primary = { slot: p, L, A: g.A, rIn: g.start - e, rOut: g.end - e, kLambda: 3, taper: 1, frac: alt ? [0.2, 0.55] : undefined };
@@ -806,12 +1000,15 @@ const spiral: Family = {
     const taper = ctx.num('slide.amplitudeTaper', rng.chance(0.5) ? 1 : rng.float(1.2, 2.2));
     let reserve = 0;
     let divs = 1;
-    if (rng.chance(0.2) && !ctx.locked('eccentric.enabled')) {
+    // Symmetry N: only an N-start spiral is N-fold symmetric (each start is the first one turned by 360°/N).
+    const multi = rng.chance(0.2);
+    if ((multi || ctx.N >= 2) && !ctx.locked('eccentric.enabled')) {
       // Multi-start spiral: the dividing wheel lays down 2–4 interleaved spirals. Centred (or nearly) and with
       // lobes a multiple of the divisions, each copy lands on the same pattern; a big offset just tangles them.
       ctx.configuredEccentric = true;
       ctx.set('eccentric.enabled', true);
-      divs = ctx.num('eccentric.divisions', rng.int(2, 4));
+      const dDraw = rng.int(2, 4);
+      divs = ctx.num('eccentric.divisions', ctx.N >= 2 ? ctx.N : dDraw);
       ctx.set('eccentric.divisionStep', 0);
       reserve = ctx.num('eccentric.offset', rng.chance(0.6) ? 0 : rng.float(0.3, 1.2) * s);
     }
@@ -819,9 +1016,9 @@ const spiral: Family = {
     const p = ctx.rosette('rock');
     let L = primaryLobes(p, ctx, [[3, 1], [4, 1], [5, 1.5], [6, 2], [8, 2], [10, 1], [12, 2], [16, 1], [20, 1], [24, 1]]);
     if (divs > 1 && L % divs !== 0) L = p.num('lobes', Math.max(divs, Math.round(L / divs) * divs));
-    p.profile(rng.weighted<ProfileKind>([['sine', 5], ['convex', 2], ['flame', 2], ['concave', 1]]));
+    p.profile(rng.weighted<ProfileKind>(ctx.profiles([['sine', 5], ['convex', 2], ['flame', 2], ['concave', 1]])));
     p.num('phase', rng.float(0, 360));
-    const turns: [number, number] = divs > 1 ? [Math.round(30 / divs), Math.round(60 / divs)] : [25, 70];
+    const turns: [number, number] = divs > 1 ? [Math.max(2, Math.round(30 / divs)), Math.max(2, Math.round(60 / divs))] : [25, 70];
     const g = ringGeometry(ctx, p, L, { passes: turns, start: [1, 8], end: [40, 47], ratio: [1.3, 3.5], kLambda: 2.6, taper, outerReserve: reserve, stepMul: 1 / divs, spacingMul: divs, spiral: true, centre: 0.6 });
     const twist = divs > 1 ? rng.float(0.2, 0.8) : rng.float(0.4, 1.5);
     ctx.num('slide.phaseStep', rng.chance(0.2) ? 0 : rng.sign() * driftStep(L, g.passes, twist));
@@ -839,24 +1036,30 @@ const pumped: Family = {
   requires: { 'slide.spiral': false },
   build(ctx) {
     const { rng } = ctx;
-    const alt = ctx.locked('slide.phaseMode') ? ctx.get<PhaseMode>('slide.phaseMode') === 'alternate' : rng.chance(0.5);
+    // Mirror rules out the twisting linear drift: alternate unless the phase mode is locked.
+    const alt = ctx.locked('slide.phaseMode') ? ctx.get<PhaseMode>('slide.phaseMode') === 'alternate' : rng.chance(0.5) || ctx.mirror;
     ctx.set('slide.phaseMode', alt ? 'alternate' : 'linear');
     if (alt) {
       ctx.set('slide.alternateEvery', 1);
       ctx.set('slide.alternateFraction', 0.5);
     }
     const p = ctx.rosette('rock');
-    const L = primaryLobes(p, ctx, [[12, 3], [16, 2], [18, 2], [24, 3], [30, 1], [36, 1]]);
-    p.profile(rng.weighted<ProfileKind>([['sine', 5], ['convex', 2]]));
+    // Metal alternate is a barleycorn: size the grain, or classic counts stretch into slivers.
+    const L =
+      ctx.metalSpacing > 0 && alt
+        ? p.num('lobes', grainLobes(ctx, rng.float(1.8, 4)))
+        : primaryLobes(p, ctx, [[12, 3], [16, 2], [18, 2], [24, 3], [30, 1], [36, 1]]);
+    p.profile(rng.weighted<ProfileKind>(ctx.profiles([['sine', 5], ['convex', 2]])));
     p.num('phase', rng.float(0, 360));
     const g = ringGeometry(ctx, p, L, {
       passes: alt ? [28, 60] : [50, 110],
       start: [3, 12],
       end: [40, 47],
-      ratio: alt ? [0.75, 1.2] : [1.5, 3.5],
+      ratio: alt ? [0.45, 0.6] : [1.5, 3.5],
       kLambda: 3,
       taper: 1,
       centre: 0.45,
+      keepRatio: alt,
     });
     if (!alt) ctx.num('slide.phaseStep', rng.sign() * driftStep(L, g.passes, rng.float(0.5, 1.5)));
     ctx.primary = { slot: p, L, A: g.A, rIn: g.start, rOut: g.end, kLambda: 3, taper: 1, frac: alt ? [0.2, 0.55] : undefined };
@@ -866,7 +1069,7 @@ const pumped: Family = {
 
 const FAMILY_LIST: Family[] = [barleycorn, basket, moire, flame, sunburst, rosace, cartouche, spiral, pumped];
 
-export const FAMILIES: { id: string; label: string; weight: number }[] = FAMILY_LIST.map(({ id, label, weight }) => ({ id, label, weight }));
+export const FAMILIES: { id: string; label: string; weight: number; names: readonly string[] }[] = FAMILY_LIST.map(({ id, label, weight, names }) => ({ id, label, weight, names }));
 
 // ---------------------------------------------------------------------------------------------------------
 // Family choice under locks
@@ -876,6 +1079,22 @@ function familyAllowed(f: Family, ctx: Ctx): boolean {
     if (ctx.locked(path) && getPath(ctx.cur, path) !== want) return false;
   }
   if (f.id === 'pumped' && ctx.locks.stack && !ctx.cur.rosettes.some((r) => r.axis === 'pump')) return false;
+  return true;
+}
+
+/**
+ * Families that can meet the symmetry: mirror rules out the twisting / chiral ones (flame, moiré, spiral); an
+ * ellipse is only 2-fold; the dividing wheel can make at most 36 divisions (rosace and N-start spirals use N).
+ */
+function familySymmetryOk(f: Family, ctx: Ctx): boolean {
+  const { N, mirror } = ctx;
+  if (mirror && (f.id === 'flame' || f.id === 'moire' || f.id === 'spiral')) return false;
+  if (N >= 3 && f.id === 'cartouche') return false;
+  if (N >= 2 && (f.id === 'rosace' || f.id === 'spiral')) {
+    const maxDiv = PARAM_BY_KEY.get('eccentric.divisions')?.max ?? 36;
+    if (N > maxDiv) return false;
+    if (ctx.locked('eccentric.enabled') && !ctx.cur.eccentric?.enabled) return false;
+  }
   return true;
 }
 
@@ -900,10 +1119,10 @@ function adapt(ctx: Ctx): void {
   for (const q of ctx.leftovers()) {
     q.enabled(true);
     if (q.r.axis === 'pump') {
-      q.num('lobes', relatedLobes(rng, L, 'down'));
+      q.num('lobes', relatedLobes(rng, L, 'down', ctx.N));
       q.num('amplitude', pumpAmplitude(ctx));
     } else {
-      q.num('lobes', relatedLobes(rng, L, 'up'));
+      q.num('lobes', relatedLobes(rng, L, 'up', ctx.N));
       q.num('amplitude', A * rng.float(0.1, 0.25));
     }
     q.profile(rng.pick(['sine', 'convex'] as ProfileKind[]));
@@ -911,7 +1130,10 @@ function adapt(ctx: Ctx): void {
   }
 
   if (ctx.get<boolean>('eccentric.enabled') && !ctx.configuredEccentric) {
-    ctx.num('eccentric.divisions', rng.int(3, 8));
+    // Symmetry N: N evenly spaced copies (or the largest divisor of N the wheel can index).
+    const dDraw = rng.int(3, 8);
+    const maxDiv = PARAM_BY_KEY.get('eccentric.divisions')?.max ?? 36;
+    ctx.num('eccentric.divisions', ctx.N >= 2 ? (ctx.N <= maxDiv ? ctx.N : Math.max(1, ...divisorsOf(ctx.N, 1).filter((d) => d <= maxDiv))) : dDraw);
     ctx.set('eccentric.divisionStep', 0);
     ctx.num('eccentric.offset', rng.float(2, 8) * s);
   }
@@ -922,8 +1144,10 @@ function adapt(ctx: Ctx): void {
 }
 
 /** Keep the whole pattern inside 0.96 × the work radius: shrink free radii if chucks / amplitude push it out.
- *  Runs after finishRosettes so it sees the generated stack, not the current recipe's. */
+ *  Runs after finishRosettes so it sees the generated stack, not the current recipe's. A filled pattern runs off
+ *  the rim by design and is left alone. */
 function fitToWork(ctx: Ctx): void {
+  if (ctx.fill) return;
   const rock = ctx.out.rosettes.filter((r) => r.enabled && r.axis === 'rock').reduce((a, r) => a + r.amplitude, 0);
   const T = Math.max(1, ctx.get<number>('slide.amplitudeTaper'));
   const extra = (ctx.out.eccentric.enabled ? ctx.out.eccentric.offset : 0) + (ctx.out.elliptical.enabled ? ctx.out.elliptical.e : 0) + rock * T;
@@ -939,10 +1163,60 @@ function fitToWork(ctx: Ctx): void {
   }
 }
 
+/**
+ * Fill to edge: the effective end moves with the final rock stack (compound shares, kept rosettes), so re-fit the
+ * pass count to the step the family asked for. Spacing, the barleycorn 2ΣA ≈ s rule and metal coverage then hold
+ * over the span the engine actually cuts.
+ */
+function fillFit(ctx: Ctx): void {
+  if (!ctx.fill || !(ctx.fillStep > 0) || ctx.locked('slide.passes')) return;
+  const r = ctx.out;
+  const span = Math.abs(effectiveEndRadius(r) - r.slide.startRadius);
+  let n = Math.round(span / ctx.fillStep) + (r.slide.spiral ? 0 : 1);
+  const m = ctx.passMultiple;
+  if (m > 1) n = Math.max(2 * m, Math.round(n / m) * m);
+  ctx.num('slide.passes', Math.max(2, Math.min(ctx.fillMaxPasses, n)));
+}
+
+/**
+ * Hold the symmetry the generator aimed for (unlocked values only), in enforceSymmetry's terms so the safety net
+ * finds nothing to snap.
+ *   Mirror: every rosette's peak on 12 o'clock, no linear twist, half-lobe alternation only.
+ *   Order N (no mirror): linear drift twists the whole program by a whole number of 360°/N steps, at least one
+ *   (the family asked for drift), at most 30° per pass.
+ */
+function holdSymmetry(r: Recipe, ls: LockSet, N: number, mirror: boolean): void {
+  const sl = r.slide;
+  if (mirror) {
+    if (!ls.stack) {
+      for (const ros of r.rosettes) {
+        const lk = ls.rosettes.get(ros.id);
+        if (!ros.enabled || lk === 'all' || lk?.has('phase')) continue;
+        ros.phase = mirrorPhase(ros.lobes);
+      }
+    }
+    if (sl.phaseMode === 'linear' && !pathLocked(ls, 'slide.phaseStep')) sl.phaseStep = 0;
+    if (sl.phaseMode === 'alternate' && !pathLocked(ls, 'slide.alternateFraction') && ![0, 0.5, 1].includes(sl.alternateFraction)) sl.alternateFraction = 0.5;
+    return;
+  }
+  const turns = sl.spiral ? sl.passes : sl.passes - 1;
+  if (N >= 2 && sl.phaseMode === 'linear' && sl.phaseStep !== 0 && turns > 0 && !pathLocked(ls, 'slide.phaseStep')) {
+    const unit = 360 / N / turns;
+    let m = Math.sign(sl.phaseStep) * Math.max(1, Math.round(Math.abs(sl.phaseStep) / unit));
+    while (m !== 0 && Math.abs(m * unit) > 30 + 1e-9) m -= Math.sign(m);
+    sl.phaseStep = m * unit;
+  }
+}
+
 /** V-groove depth that cuts a groove `width` mm wide, plus the pump's downward reach; clamped to the param range. */
 function depthForWidth(width: number, toolAngle: number, pump = 0): number {
   const d = width / (2 * Math.tan(((toolAngle / 2) * Math.PI) / 180)) + pump;
   return Math.min(0.4, Math.max(0.01, d));
+}
+
+/** V-tool angle (degrees) that cuts a groove `width` mm wide at `depth` mm. */
+function angleForWidth(width: number, depth: number): number {
+  return (2 * Math.atan(width / (2 * Math.max(1e-6, depth))) * 180) / Math.PI;
 }
 
 /** Largest downward pump displacement (mm): sum of enabled pump amplitudes × the taper peak. */
@@ -951,9 +1225,10 @@ function pumpReach(r: Recipe): number {
   return sum * Math.max(1, r.slide.amplitudeTaper);
 }
 
-/** Distance between neighbouring cuts, mm (null when there is a single pass). */
+/** Distance between neighbouring cuts, mm (null when there is a single pass). Measured over the span the engine
+ *  cuts: effectiveEndRadius (the fill end when machine.fillEdge is on). */
 export function passSpacing(r: Recipe): number | null {
-  const span = Math.abs(r.slide.endRadius - r.slide.startRadius);
+  const span = Math.abs(effectiveEndRadius(r) - r.slide.startRadius);
   if (r.slide.spiral) {
     const divs = r.eccentric.enabled ? Math.max(1, r.eccentric.divisions) : 1;
     return r.slide.passes >= 1 && span > 0 ? span / r.slide.passes / divs : null;
@@ -961,12 +1236,100 @@ export function passSpacing(r: Recipe): number | null {
   return r.slide.passes > 1 && span > 0 ? span / (r.slide.passes - 1) : null;
 }
 
-/** Shallowest groove width / pass spacing (metal coverage; ≥ 1 means neighbouring grooves meet). */
-export function grooveCoverage(r: Recipe): number | null {
+/** Cap on the work maxPassGap does: samples × passes × rosettes. */
+const GAP_BUDGET = 300_000;
+
+/**
+ * Widest radial gap between radially-adjacent cut centrelines anywhere in the band, mm (null when passSpacing
+ * is null). A groove at least this wide cuts the whole surface: no flat survives between neighbouring cuts.
+ * 2A = s with anti-phased passes (barleycorn) gives 2s; passes in phase give s.
+ *
+ * Measured, not estimated: with big amplitudes (moiré, flame, sunray) the nearest centreline is often a
+ * pass 2–3 away, so a closed form like s + Σ 2A|sin πf| overshoots badly. Each pass's centreline radius is
+ *   k·s + Σ_rock A · taper · profile(u),  u = −L·θ/2π + phase·L/360 + programPhase(k)   (as in machine.ts),
+ * sampled over one angular period (2π / gcd of the lobes) for a window of passes at the band's peak taper
+ * (max(1, amplitudeTaper)). Per angle the radii are sorted and the widest gap counted, using only the inner
+ * part of the window that no pass outside it can reach. Spiral turns count as passes. Rubber is ignored.
+ * Radial gaps are an upper bound on the groove width needed (on steep flanks the cuts sit closer than the
+ * radial gap says), so sizing to them never leaves flats. Eccentric work with several divisions (rosace,
+ * multi-start spirals) returns the plain pass spacing.
+ */
+export function maxPassGap(r: Recipe): number | null {
   const sp = passSpacing(r);
   if (!sp) return null;
+  if (r.eccentric.enabled && Math.round(r.eccentric.divisions) > 1) return sp;
+  const rock = r.rosettes.filter((x) => x.enabled && x.axis !== 'pump' && Number.isFinite(x.amplitude) && x.amplitude !== 0);
+  if (!rock.length) return sp;
+
+  const sl = r.slide;
+  const T = Math.max(1, Number.isFinite(sl.amplitudeTaper) ? sl.amplitudeTaper : 1);
+  const reach = rock.reduce((a, x) => a + Math.abs(x.amplitude), 0) * T;
+  const every = Math.max(1, Math.round(sl.alternateEvery || 1));
+  const custom = sl.phaseCustom?.length ? sl.phaseCustom : [0];
+  const period = sl.phaseMode === 'alternate' ? 2 * every : sl.phaseMode === 'custom' ? custom.length : 1;
+  // Window j = −M..M around the middle pass. Radii in (lo, hi) can't be reached by any pass outside it, and that
+  // stretch is wider than the largest possible gap (s + 2·reach) plus a full period of the phase program.
+  const M = Math.ceil((2 * reach) / sp) + period + 1;
+  // Degenerate (amplitude hundreds of passes deep): fall back to the bound no gap can exceed.
+  if (M > 200) return sp + 2 * reach;
+  const n = 2 * M + 1;
+  const lo = -(M + 1) * sp + reach;
+  const hi = (M + 1) * sp - reach;
+  const mid = Math.max(0, Math.floor((Math.max(1, Math.round(sl.passes)) - 1) / 2));
+  const dir = effectiveEndRadius(r) >= sl.startRadius ? 1 : -1;
+
+  const lobes = rock.map((x) => Math.max(1, Math.round(x.lobes)));
+  const G = lobes.reduce((g, L) => gcd(g, L), lobes[0]);
+  const maxL = Math.max(...lobes);
+  const S = Math.max(64, Math.min(Math.ceil((48 * maxL) / G), Math.floor(GAP_BUDGET / (n * rock.length))));
+  const nr = rock.length;
+
+  // Per (rosette, pass): amplitude × taper and the constant part of u.
+  const amp = new Float64Array(nr);
+  const off = new Float64Array(nr * n);
+  for (let i = 0; i < nr; i++) {
+    const x = rock[i];
+    const L = lobes[i];
+    amp[i] = x.amplitude * T;
+    for (let j = 0; j < n; j++) {
+      const k = mid + j - M;
+      let prog: number;
+      if (sl.phaseMode === 'alternate') prog = (((Math.floor(k / every) % 2) + 2) % 2) === 1 ? sl.alternateFraction : 0;
+      else if (sl.phaseMode === 'custom') prog = (custom[((k % custom.length) + custom.length) % custom.length] * L) / 360;
+      else prog = (k * sl.phaseStep * L) / 360;
+      off[i * n + j] = ((x.phase || 0) * L) / 360 + prog;
+    }
+  }
+
+  const rad = new Float64Array(n);
+  let best = 0;
+  for (let t = 0; t < S; t++) {
+    const turns = t / S / G; // θ / 2π over one angular period
+    for (let j = 0; j < n; j++) {
+      let v = 0;
+      for (let i = 0; i < nr; i++) v += amp[i] * profileValue(rock[i].profile, -lobes[i] * turns + off[i * n + j]);
+      rad[j] = dir * (j - M) * sp + v;
+    }
+    rad.sort();
+    for (let j = 0; j + 1 < n; j++) {
+      if (rad[j] < lo) continue;
+      if (rad[j + 1] > hi) break;
+      const g = rad[j + 1] - rad[j];
+      if (g > best) best = g;
+    }
+  }
+  return best > 0 ? best : sp;
+}
+
+/**
+ * Metal coverage: shallowest groove width / maxPassGap. ≥ 1 means the dial is fully cut: the grooves are wide
+ * enough that no flat survives anywhere between neighbouring cuts. Uses the effective end (Fill to edge).
+ */
+export function grooveCoverage(r: Recipe): number | null {
+  const gap = maxPassGap(r);
+  if (!gap) return null;
   const dMin = r.metal.baseDepth - pumpReach(r);
-  return (2 * Math.max(0, dMin) * Math.tan(((r.metal.toolAngle / 2) * Math.PI) / 180)) / sp;
+  return (2 * Math.max(0, dMin) * Math.tan(((r.metal.toolAngle / 2) * Math.PI) / 180)) / gap;
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -1191,15 +1554,22 @@ function styleInk(ctx: Ctx): void {
 function styleMetal(ctx: Ctx): void {
   const { rng } = ctx;
   ctx.set<MetalKind>('metal.material', rng.weighted<MetalKind>([['silver', 2.5], ['gold', 2], ['rose', 2], ['brass', 1.5], ['steel', 1.5], ['blued', 1.5]]));
-  // Full coverage: the shallowest groove is 1.0–1.4 × the pass spacing wide, so neighbours meet or overlap.
-  const sp = ctx.spacing > 0 ? ctx.spacing : 0.4;
-  const k = rng.float(1.0, 1.4);
+  // Full coverage: the shallowest groove is 1.0–1.2 × the widest gap between neighbouring centrelines, so the
+  // whole surface is cut and neighbouring groove walls meet in ridges (raised diamonds on barleycorn).
+  // ctx.out's geometry is final here (compound, pumps, fitToWork have run); pumps don't move the centrelines.
+  const gap = maxPassGap(ctx.out) ?? (ctx.spacing > 0 ? ctx.spacing : 0.4);
+  const k = rng.float(1.0, 1.2);
+  ctx.coverageK = k;
+  const width = k * gap;
   const pumps = ctx.slots.filter((x) => x.attached && x.r.enabled && x.r.axis === 'pump');
-  let angle = rng.int(95, 145);
-  // With a pump the shallowest cut must leave depth room for the modulation: steepen the tool if needed.
-  if (pumps.length) angle = Math.max(angle, Math.ceil((2 * Math.atan((k * sp) / (2 * 0.2)) * 180) / Math.PI));
+  // Alternate phasing (barleycorn, basket, cartouche) gets broad gravers: wide, flashing facets.
+  const alt = ctx.out.slide.phaseMode === 'alternate';
+  let angle = alt ? rng.int(125, 150) : rng.int(95, 145);
+  // Widen the graver until the shallowest cut fits its depth budget (under the 0.4 mm cap, and with a pump,
+  // shallow enough to leave depth room for the modulation).
+  angle = Math.max(angle, Math.ceil(angleForWidth(width, pumps.length ? 0.2 : 0.38)));
   angle = ctx.num('metal.toolAngle', angle);
-  const shallow = depthForWidth(k * sp, angle);
+  const shallow = depthForWidth(width, angle);
   const T = Math.max(1, ctx.get<number>('slide.amplitudeTaper'));
   if (pumps.length) {
     const bdLocked = ctx.locked('metal.baseDepth');
@@ -1208,7 +1578,7 @@ function styleMetal(ctx: Ctx): void {
     const room = bdLocked ? Math.max(0.005, Math.min(0.6 * bd, bd - shallow)) : Math.min(shallow * rng.float(0.5, 1.0), 0.395 - shallow);
     for (const q of pumps) q.num('amplitude', Math.max(0.005, room / T / pumps.length));
   }
-  ctx.num('metal.baseDepth', depthForWidth(k * sp, angle, pumpReach(ctx.out)));
+  ctx.num('metal.baseDepth', depthForWidth(width, angle, pumpReach(ctx.out)));
   ctx.num('metal.lightAngle', rng.float(20, 70));
   ctx.num('metal.lightElevation', rng.float(28, 55));
   const enamel = ctx.set('metal.enamel', rng.chance(0.35));
@@ -1217,6 +1587,33 @@ function styleMetal(ctx: Ctx): void {
     // Translucent, so the guilloché sparkles through.
     ctx.num('metal.enamelOpacity', rng.float(0.3, 0.55));
   }
+}
+
+/**
+ * Re-size the metal cut for changed geometry: the shallowest groove = k × the widest gap (k = coverage, 1.0–1.2).
+ * The graver is widened first if the depth would pass the 0.4 mm cap. Shared by Mutate and the post-symmetry fit.
+ */
+function fitMetalCut(r: Recipe, ls: LockSet, k: number): void {
+  if (r.mode !== 'metal' || pathLocked(ls, 'metal.baseDepth')) return;
+  const gap = maxPassGap(r);
+  if (!gap) return;
+  const width = k * gap;
+  const reach = pumpReach(r);
+  // The 0.4 mm depth cap would leave flats: widen the graver first (if it's free).
+  if (!pathLocked(ls, 'metal.toolAngle') && width / (2 * Math.tan(((r.metal.toolAngle / 2) * Math.PI) / 180)) + reach > 0.4) {
+    const angle = Math.max(r.metal.toolAngle, Math.ceil(angleForWidth(width, Math.max(0.05, 0.395 - reach))));
+    r.metal.toolAngle = fitNumber(PARAM_BY_KEY.get('metal.toolAngle') as NumDef, angle);
+  }
+  r.metal.baseDepth = fitNumber(PARAM_BY_KEY.get('metal.baseDepth') as NumDef, depthForWidth(width, r.metal.toolAngle, reach));
+}
+
+/** Symmetry orders Random picks when 'symmetry.order' is unlocked (0 = free). */
+const SYMMETRY_ORDERS: [number, number][] = [[0, 3], [6, 1], [8, 1], [12, 2], [24, 1]];
+
+/** Plate view-state carried over from `current` (a v1 recipe may lack it: off and free). */
+function currentView(cur: Recipe): { fill: boolean; order: number; mirror: boolean } {
+  const order = Number(cur.symmetry?.order ?? 0);
+  return { fill: !!cur.machine?.fillEdge, order: Number.isFinite(order) ? order : 0, mirror: !!cur.symmetry?.mirror };
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -1232,13 +1629,29 @@ export function randomRecipe(seed: number, current: Recipe, locks: string[]): Re
   ctx.out.version = RECIPE_VERSION;
   ctx.out.mode = current.mode;
 
+  // Plate view-state first, so every family builds for it. Locked (the UI default): kept from `current`, with no
+  // RNG draw, so the rest of the sequence is unchanged. Unlocked: drawn here. The plate size is never randomized.
+  const view = currentView(current);
+  const order = ctx.locked('symmetry.order') ? view.order : rng.weighted(SYMMETRY_ORDERS);
+  const mirror = ctx.locked('symmetry.mirror') ? view.mirror : order >= 2 && rng.chance(0.4);
+  const fill = ctx.locked('machine.fillEdge') ? view.fill : rng.chance(0.35);
+  ctx.out.machine.fillEdge = fill;
+  ctx.out.symmetry = { order, mirror };
+  ctx.fill = fill;
+  ctx.N = order >= 2 ? Math.round(order) : 0;
+  ctx.mirror = mirror;
+
   let pool = FAMILY_LIST.filter((f) => familyAllowed(f, ctx));
   if (!pool.length) pool = FAMILY_LIST;
+  const symOk = pool.filter((f) => familySymmetryOk(f, ctx));
+  if (symOk.length) pool = symOk;
   const family = rng.weighted(pool.map((f) => [f, familyWeight(f, ctx)] as const));
 
   neutral(ctx);
   // Metal: fine pass spacing so the V-grooves can meet (full-coverage engraving, no flats between cuts).
-  if (current.mode === 'metal') ctx.metalSpacing = rng.float(0.25, 0.6);
+  // 0.25–0.6 mm on the 100 mm reference; small plates go finer (to ×0.5: 0.125–0.3 mm on a 28–50 mm watch dial,
+  // 50–120 rings) so a dial reads as finely as a real one instead of as a magnified 100 mm plate.
+  if (current.mode === 'metal') ctx.metalSpacing = rng.float(0.25, 0.6) * Math.min(1, Math.max(0.5, ctx.s));
   ctx.stackN = rng.weighted(family.stack ?? STACK_DEFAULT);
   family.build(ctx);
 
@@ -1252,13 +1665,20 @@ export function randomRecipe(seed: number, current: Recipe, locks: string[]): Re
   adapt(ctx);
   ctx.finishRosettes();
   fitToWork(ctx);
+  fillFit(ctx);
+  holdSymmetry(ctx.out, ctx.locks, ctx.N, ctx.mirror);
 
   if (current.mode === 'metal') styleMetal(ctx);
   else styleInk(ctx);
 
   ctx.out.seed = seed;
   ctx.set('name', `${rng.pick(family.names)} No. ${(seed >>> 0) % 10000}`);
-  return ctx.out;
+
+  // Safety net: snap anything the families missed. If that moved lobes or phases, the widest gap moved with
+  // them: re-fit the cut so coverage stays where styleMetal put it.
+  const out = enforceSymmetry(ctx.out);
+  if (out !== ctx.out) fitMetalCut(out, ctx.locks, ctx.coverageK);
+  return out;
 }
 
 /** Numeric params Mutate nudges: everything with a Random range that is relevant to the current recipe. */
@@ -1284,7 +1704,7 @@ function nudge(rng: Rng, def: NumDef, v: number, amount: number): number {
  * Occasionally grow or shrink the stack: add a related secondary (or a pump), or drop an unlocked secondary
  * (never the last rock rosette). The summed rock amplitude is kept, so the spacing rule still holds.
  */
-function mutateStack(out: Recipe, rng: Rng, ls: LockSet, amount: number): void {
+function mutateStack(out: Recipe, rng: Rng, ls: LockSet, amount: number, N: number, mirror: boolean): void {
   const unlocked = (r: Rosette) => !ls.rosettes.has(r.id);
   const ampFree = (r: Rosette) => {
     const k = ls.rosettes.get(r.id);
@@ -1307,14 +1727,14 @@ function mutateStack(out: Recipe, rng: Rng, ls: LockSet, amount: number): void {
   if (rng.chance(0.12 * p) && rocks().length < 4 && out.rosettes.length < MAX_ROSETTES) {
     const before = rockSum();
     const used = new Set(rocks().map((r) => r.lobes));
-    const L2 = secondaryLobes(rng, primary.lobes, used);
+    const L2 = secondaryLobes(rng, primary.lobes, used, N);
     out.rosettes.push({
       id: newRosetteId(),
       enabled: true,
       axis: 'rock',
       lobes: L2,
       amplitude: fitNumber(ROSETTE_PARAM_BY_KEY.get('amplitude'), primary.amplitude * rng.float(0.2, 0.5) * Math.min(1, primary.lobes / L2)),
-      profile: rng.weighted(PROFILE_WEIGHTS.filter(([k]) => k !== primary.profile)),
+      profile: rng.weighted(PROFILE_WEIGHTS.filter(([k]) => k !== primary.profile && !(mirror && ASYMMETRIC.has(k)))),
       phase: fitNumber(ROSETTE_PARAM_BY_KEY.get('phase'), rng.float(0, 360)),
     });
     rescaleTo(before);
@@ -1335,7 +1755,7 @@ function mutateStack(out: Recipe, rng: Rng, ls: LockSet, amount: number): void {
       id: newRosetteId(),
       enabled: true,
       axis: 'pump',
-      lobes: pumpLobes(rng, primary.lobes, new Set()),
+      lobes: pumpLobes(rng, primary.lobes, new Set(), N),
       amplitude: fitNumber(ROSETTE_PARAM_BY_KEY.get('amplitude'), out.mode === 'metal' ? Math.min(depthRoom * rng.float(0.4, 0.8), 0.39 - depthRoom) : rng.float(0.12, 0.35)),
       profile: rng.weighted<ProfileKind>([['sine', 4], ['convex', 2], ['square', 1]]),
       phase: fitNumber(ROSETTE_PARAM_BY_KEY.get('phase'), rng.float(0, 360)),
@@ -1354,6 +1774,14 @@ export function mutateRecipe(current: Recipe, seed: number, locks: string[], amo
   const rng = new Rng((seed ^ 0x5bd1e995) >>> 0);
   const ls = parseLocks(locks);
   const out = cloneRecipe(current);
+  // Plate view-state is never mutated (locked or not); symmetry steers the nudges below.
+  const view = currentView(current);
+  out.machine.fillEdge = view.fill;
+  out.symmetry = { order: view.order, mirror: view.mirror };
+  const N = view.order >= 2 ? Math.round(view.order) : 0;
+  const mirror = view.mirror;
+  // Values the symmetry pins: N evenly spaced divisions; mirror has no twist and only half-lobe alternation.
+  const pinned = new Set<string>([...(N >= 2 ? ['eccentric.divisions'] : []), ...(mirror ? ['slide.phaseStep', 'slide.alternateFraction'] : [])]);
 
   // Radii move together (centre + span) so narrow bands, e.g. a rosace's, keep their shape.
   const radiiFree = !pathLocked(ls, 'slide.startRadius') && !pathLocked(ls, 'slide.endRadius');
@@ -1374,7 +1802,7 @@ export function mutateRecipe(current: Recipe, seed: number, locks: string[], amo
   }
 
   for (const def of mutableParams(current)) {
-    if (pathLocked(ls, def.key)) continue;
+    if (pathLocked(ls, def.key) || pinned.has(def.key)) continue;
     if (radiiFree && (def.key === 'slide.startRadius' || def.key === 'slide.endRadius')) continue;
     const v = getPath(out, def.key);
     if (typeof v !== 'number') continue;
@@ -1398,20 +1826,37 @@ export function mutateRecipe(current: Recipe, seed: number, locks: string[], amo
           // Pump amplitudes live far below the rock range: nudge relatively.
           ros.amplitude = fitNumber(def, ros.amplitude * (1 + rng.gauss() * amount));
         } else if (key === 'lobes') {
-          // Lobes change the character a lot: only sometimes, and by a lobe or two.
-          if (rng.chance(0.25)) ros.lobes = fitNumber(def, ros.lobes + rng.sign() * Math.max(1, Math.round(Math.abs(rng.gauss()) * amount * 0.5 * ros.lobes)));
+          // Lobes change the character a lot: only sometimes, and by a lobe or two (by N under symmetry).
+          if (rng.chance(0.25)) {
+            const d = rng.sign() * Math.max(1, Math.round(Math.abs(rng.gauss()) * amount * 0.5 * ros.lobes));
+            ros.lobes = N >= 2 ? snapLobes(ros.lobes + Math.sign(d) * N * Math.max(1, Math.round(Math.abs(d) / N)), N) : fitNumber(def, ros.lobes + d);
+          }
         } else {
           ros[key] = nudge(rng, def, ros[key], amount);
         }
       }
       if (!isLocked('profile') && rng.chance(0.06)) {
-        const others = PROFILES.filter((p) => p !== ros.profile);
+        const others = PROFILES.filter((p) => p !== ros.profile && !(mirror && ASYMMETRIC.has(p)));
         ros.profile = rng.pick(others);
       }
     }
   }
 
-  if (!ls.stack) mutateStack(out, rng, ls, amount);
+  if (!ls.stack) mutateStack(out, rng, ls, amount, N, mirror);
+
+  // Metal: spacing drifted a lot (passes vs span, the effective span with Fill on): bring it back with the pass
+  // count. Before the symmetry step, whose whole-twist drift depends on the pass count.
+  if (out.mode === 'metal') {
+    const sp0 = passSpacing(current);
+    const sp1 = passSpacing(out);
+    if (sp0 && sp1 && !pathLocked(ls, 'slide.passes') && (sp1 < sp0 / 1.3 || sp1 > sp0 * 1.3)) {
+      const span = Math.abs(effectiveEndRadius(out) - out.slide.startRadius);
+      const divs = out.slide.spiral && out.eccentric.enabled ? Math.max(1, out.eccentric.divisions) : 1;
+      const n = out.slide.spiral ? Math.round(span / (sp0 * divs)) : Math.round(span / sp0) + 1;
+      out.slide.passes = Math.max(2, fitNumber(PARAM_BY_KEY.get('slide.passes') as NumDef, n));
+    }
+  }
+  holdSymmetry(out, ls, N, mirror);
 
   // Colour drifts with the pattern: rotate the whole palette (or the enamel) a little in OKLCH hue.
   if (out.mode === 'ink' && !pathLocked(ls, 'ink.palette') && rng.chance(0.6)) {
@@ -1422,26 +1867,11 @@ export function mutateRecipe(current: Recipe, seed: number, locks: string[], amo
     out.metal.enamelColor = rotateHue(out.metal.enamelColor, rng.gauss() * amount * 60);
   }
 
-  // Metal: keep the grooves meeting. Hold the previous coverage (clamped to 1.0–1.4) at the new spacing.
-  if (out.mode === 'metal') {
-    // Spacing drifted a lot (passes vs span): bring it back with the pass count.
-    const sp0 = passSpacing(current);
-    const sp1 = passSpacing(out);
-    if (sp0 && sp1 && !pathLocked(ls, 'slide.passes') && (sp1 < sp0 / 1.3 || sp1 > sp0 * 1.3)) {
-      const span = Math.abs(out.slide.endRadius - out.slide.startRadius);
-      const divs = out.slide.spiral && out.eccentric.enabled ? Math.max(1, out.eccentric.divisions) : 1;
-      const n = out.slide.spiral ? Math.round(span / (sp0 * divs)) : Math.round(span / sp0) + 1;
-      out.slide.passes = Math.max(2, fitNumber(PARAM_BY_KEY.get('slide.passes') as NumDef, n));
-    }
-  }
-  if (out.mode === 'metal' && !pathLocked(ls, 'metal.baseDepth')) {
-    const sp = passSpacing(out);
-    if (sp) {
-      const target = Math.min(1.4, Math.max(1.0, grooveCoverage(current) ?? 1.2));
-      out.metal.baseDepth = fitNumber(PARAM_BY_KEY.get('metal.baseDepth') as NumDef, depthForWidth(target * sp, out.metal.toolAngle, pumpReach(out)));
-    }
-  }
+  // Safety net for symmetry, before the metal fit below measures the final geometry.
+  const res = enforceSymmetry(out);
+  // Metal: keep the dial fully cut. Hold the previous coverage (clamped to 1.0–1.2) against the new widest gap.
+  fitMetalCut(res, ls, Math.min(1.2, Math.max(1.0, grooveCoverage(current) ?? 1.1)));
 
-  out.seed = seed;
-  return out;
+  res.seed = seed;
+  return res;
 }

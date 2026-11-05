@@ -32,6 +32,35 @@ export interface MetalShared {
   uDial: { value: THREE.Vector3 };
   /** Flat view only: light azimuth as a unit vector in the view plane. */
   uLightXY: { value: THREE.Vector2 };
+  /** Tilted view only: where the tilt has carried the enamel window glint, in dial radii. */
+  uGlintShift: { value: THREE.Vector2 };
+}
+
+/** Per-material uniforms of the tilted view: plate-space render target placement. */
+export interface TiltUniforms {
+  /** Work frame → display frame (the placement). */
+  uToDisplay: { value: THREE.Matrix3 };
+  /** Plate render target rectangle: (x0, y0) in display mm and (1/width, 1/height) in 1/mm. */
+  uPlateRect: { value: THREE.Vector4 };
+  /** Mip bias for the supersampled G-buffer: sharp at ~1:1, still filtered where the tilt compresses it. */
+  uLodBias: { value: number };
+  /**
+   * Tangent frame of the tilted plate (view space): the plate's x and y axes, unit length. The G-buffer
+   * holds display-frame normals, so this maps them onto the tilted plate exactly; at tilt 0 it is the
+   * identity frame the flat view uses.
+   */
+  uTbnT: { value: THREE.Vector3 };
+  uTbnB: { value: THREE.Vector3 };
+}
+
+export function createTiltUniforms(lodBias = 0): TiltUniforms {
+  return {
+    uToDisplay: { value: new THREE.Matrix3() },
+    uPlateRect: { value: new THREE.Vector4(0, 0, 1, 1) },
+    uLodBias: { value: lodBias },
+    uTbnT: { value: new THREE.Vector3(1, 0, 0) },
+    uTbnB: { value: new THREE.Vector3(0, 1, 0) },
+  };
 }
 
 export function createMetalShared(): MetalShared {
@@ -43,6 +72,7 @@ export function createMetalShared(): MetalShared {
     uExposure: { value: 1 },
     uDial: { value: new THREE.Vector3(0, 0, 50) },
     uLightXY: { value: new THREE.Vector2(1, 0) },
+    uGlintShift: { value: new THREE.Vector2() },
   };
 }
 
@@ -71,6 +101,13 @@ uniform vec3 uEnamelColor;
 uniform float uEnamelOpacity;
 uniform vec3 uDial;
 uniform vec2 uLightXY;
+uniform vec2 uGlintShift;
+#ifdef ROSE_TILT
+  varying vec2 vRosePlate;
+  uniform float uLodBias;
+  uniform vec3 uTbnT;
+  uniform vec3 uTbnB;
+#endif
 `;
 
 /**
@@ -100,8 +137,13 @@ if (uEnamelOn > 0.5) {
   tint *= clamp(inversesqrt(max(dot(tint, LUM), 1e-3)), 1.0, 1.25);
   float dark = exp(-op * (0.35 + 0.9 * cutDepth));
   outgoingLight *= tint * dark;
-  #ifdef ROSE_FLAT
-    vec2 pd = (geometryPosition.xy - uDial.xy) / max(uDial.z, 1e-3);
+  #if defined( ROSE_FLAT ) || defined( ROSE_TILT )
+    #ifdef ROSE_FLAT
+      vec2 pd = (geometryPosition.xy - uDial.xy) / max(uDial.z, 1e-3);
+    #else
+      // tilted: the glint is a reflection, so it slides across the dial as the plate turns
+      vec2 pd = (vRosePlate - uDial.xy) / max(uDial.z, 1e-3) - uGlintShift;
+    #endif
     float along = dot(pd, uLightXY);
     float across = abs(dot(pd, vec2(-uLightXY.y, uLightXY.x)));
     float glint = exp(-pow((along - 0.45) / 0.2, 2.0)) + 0.4 * exp(-pow((along + 0.12) / 0.05, 2.0));
@@ -137,26 +179,43 @@ function mustReplace(src: string, from: string, to: string): string {
 /**
  * MeshPhysicalMaterial for engraved metal.
  * - 'flat': the flat work view. normalMap/anisotropyMap UVs come from the screen position (the groove
- *   buffers are rendered at viewport resolution), the view vector comes from a virtual eye above the dial
+ *   buffers are rendered at viewport resolution). The G-buffer already holds view-space (display-frame)
+ *   normals, so the tangent frame is the identity: a frame from the UV derivatives would scale each screen
+ *   axis by 1/its size and make the shading depend on the viewport (or PNG tile) shape. The view vector
+ *   comes from a virtual eye above the dial
  *   (so the orthographic view still gets a sheen gradient), and output is tone-mapped + sRGB-encoded in the
  *   shader so on-screen and PNG renders (render targets) look identical.
  * - 'disc': the 3D workpiece; regular UVs, regular renderer tone mapping.
+ * - 'tilt': the tilted flat view. The disc is a real tilted plane seen through a perspective camera at the
+ *   virtual eye, so it uses true view vectors; normal/anisotropy UVs map the work-frame position into a
+ *   plate-space G-buffer target (`tiltU`). Tone mapping and encoding as 'flat'.
  */
-export function createMetalMaterial(variant: 'flat' | 'disc', shared: MetalShared): THREE.MeshPhysicalMaterial {
+export function createMetalMaterial(
+  variant: 'flat' | 'disc' | 'tilt',
+  shared: MetalShared,
+  tiltU?: TiltUniforms,
+): THREE.MeshPhysicalMaterial {
   const m = new THREE.MeshPhysicalMaterial({
     metalness: 1,
     roughness: 0.2,
     color: 0xffffff,
     normalScale: new THREE.Vector2(1, 1),
   });
-  if (variant === 'flat') {
+  if (variant !== 'disc') {
     m.toneMapped = false;
     m.dithering = true;
   }
+  if (variant === 'tilt') {
+    // drawn over the (untilted) surround, which it may cross in depth
+    m.depthTest = false;
+    m.depthWrite = false;
+  }
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, shared);
+    if (tiltU) Object.assign(shader.uniforms, tiltU);
     let fs = shader.fragmentShader;
     if (variant === 'flat') fs = '#define ROSE_FLAT\n' + fs;
+    if (variant === 'tilt') fs = '#define ROSE_TILT\n' + fs;
     fs = mustReplace(fs, '#include <clipping_planes_pars_fragment>', `#include <clipping_planes_pars_fragment>\n${ENAMEL_PARS}\nuniform vec3 uVirtualEye;\n${NEUTRAL_TONEMAP}`);
     fs = mustReplace(fs, 'vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;', ENAMEL_APPLY);
     fs = mustReplace(
@@ -164,6 +223,13 @@ export function createMetalMaterial(variant: 'flat' | 'disc', shared: MetalShare
       '#include <lights_physical_fragment>',
       mustReplace(THREE.ShaderChunk.lights_physical_fragment, ANISO_DECODE_FROM, ANISO_DECODE_TO),
     );
+    if (variant === 'flat' || variant === 'tilt') {
+      // a fixed tangent frame instead of one from UV derivatives (flat: identity; tilted: the plate's axes)
+      const frame = variant === 'flat' ? 'mat3( vec3( 1.0, 0.0, 0.0 ), vec3( 0.0, 1.0, 0.0 ), normal )' : 'mat3( uTbnT, uTbnB, normal )';
+      const begin = THREE.ShaderChunk.normal_fragment_begin.replace(/mat3 tbn = getTangentFrame\([\s\S]*?\);/, `mat3 tbn = ${frame};`);
+      if (begin === THREE.ShaderChunk.normal_fragment_begin) console.warn('[render] tangent frame patch target not found');
+      fs = mustReplace(fs, '#include <normal_fragment_begin>', begin);
+    }
     if (variant === 'flat') {
       fs = mustReplace(
         fs,
@@ -182,6 +248,31 @@ export function createMetalMaterial(variant: 'flat' | 'disc', shared: MetalShare
         #endif
         #ifdef USE_ANISOTROPYMAP
           vAnisotropyMapUv = gl_Position.xy / gl_Position.w * 0.5 + 0.5;
+        #endif`,
+      );
+      shader.vertexShader = vs;
+    }
+    if (variant === 'tilt') {
+      // G-buffer reads go through uLodBias
+      fs = mustReplace(fs, '#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps);
+      fs = fs.replace(
+        /texture2D\(\s*(normalMap|anisotropyMap)\s*,\s*(vNormalMapUv|vAnisotropyMapUv)\s*\)/g,
+        'texture( $1, $2, uLodBias )',
+      );
+      fs = mustReplace(fs, '#include <tonemapping_fragment>', 'gl_FragColor.rgb = reNeutralTonemap( gl_FragColor.rgb );');
+      fs = mustReplace(fs, '#include <colorspace_fragment>', 'gl_FragColor = sRGBTransferOETF( gl_FragColor );');
+      let vs = shader.vertexShader;
+      vs = mustReplace(vs, '#include <common>', '#include <common>\nuniform mat3 uToDisplay;\nuniform vec4 uPlateRect;\nvarying vec2 vRosePlate;');
+      vs = mustReplace(
+        vs,
+        '#include <fog_vertex>',
+        `#include <fog_vertex>
+        vRosePlate = ( uToDisplay * vec3( position.xy, 1.0 ) ).xy;
+        #ifdef USE_NORMALMAP
+          vNormalMapUv = ( vRosePlate - uPlateRect.xy ) * uPlateRect.zw;
+        #endif
+        #ifdef USE_ANISOTROPYMAP
+          vAnisotropyMapUv = ( vRosePlate - uPlateRect.xy ) * uPlateRect.zw;
         #endif`,
       );
       shader.vertexShader = vs;
@@ -241,6 +332,11 @@ export function updateMetalShared(shared: MetalShared, s: MetalSettings): void {
 /** Uniforms of the groove (G-buffer) pass. */
 export interface GrooveUniforms {
   [k: string]: THREE.IUniform;
+  /** Segment mesh textures (buildSegmentMesh). */
+  uPoints: { value: THREE.Texture | null };
+  uTurns: { value: THREE.Texture | null };
+  /** Plate radius (work frame, centred on the origin) the cut is clipped to; 0 = no clip. */
+  uClipR: { value: number };
   uBaseDepth: { value: number };
   uTanHalf: { value: number };
   uPxPerMm: { value: number };
@@ -252,6 +348,9 @@ export interface GrooveUniforms {
 
 export function createGrooveUniforms(): GrooveUniforms {
   return {
+    uPoints: { value: null },
+    uTurns: { value: null },
+    uClipR: { value: 0 },
     uBaseDepth: { value: 0.08 },
     uTanHalf: { value: Math.tan(Math.PI / 3) },
     uPxPerMm: { value: 10 },
@@ -279,6 +378,7 @@ export function createGrooveMaterial(u: GrooveUniforms, mrt: boolean): THREE.Raw
     depthTest: true,
     depthWrite: true,
     depthFunc: THREE.LessDepth,
+    // the quads are built in the vertex shader and may wind either way
     side: THREE.DoubleSide,
   });
 }

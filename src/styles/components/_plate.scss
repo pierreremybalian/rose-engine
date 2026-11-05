@@ -1,0 +1,66 @@
+@use '../tokens' as *;
+
+@layer components {
+  // Plate-size quick pick: a small blank on the bench, its diameter struck in Bodoni figures.
+  .re-size-chip {
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-plate);
+    background:
+      radial-gradient(90% 70% at 50% 0%, rgb(255 236 200 / 0.04), transparent 70%),
+      var(--color-ink-850);
+    color: var(--color-vellum-dim);
+    transition:
+      color 0.15s,
+      border-color 0.15s,
+      background-color 0.15s,
+      box-shadow 0.15s,
+      transform 0.15s var(--ease-escapement);
+
+    .re-size-kind {
+      color: var(--color-smoke);
+      transition: color 0.15s;
+    }
+
+    &:hover {
+      color: var(--color-vellum);
+      border-color: var(--color-rule-strong);
+      transform: translateY(-1px);
+    }
+
+    &[aria-checked='true'] {
+      color: var(--color-brass-100);
+      border-color: var(--color-brass-400);
+      background:
+        linear-gradient(180deg, tint(--color-brass-400, 20%), tint(--color-brass-500, 8%)),
+        var(--color-ink-850);
+      box-shadow:
+        inset 0 1px 0 tint(--color-brass-200, 22%),
+        0 0 0 1px var(--color-brass-500),
+        0 6px 14px -8px rgb(0 0 0 / 0.9);
+
+      .re-size-kind {
+        color: var(--color-brass-300);
+      }
+    }
+
+    &:focus-visible {
+      @include focus-ring(2px);
+    }
+  }
+
+  // Custom symmetry box: lit like a checked chip while it holds the active order.
+  .re-numbox[data-active='true'] {
+    border-color: var(--color-brass-500);
+    box-shadow:
+      inset 0 1px 2px rgb(0 0 0 / 0.65),
+      0 0 0 1px tint(--color-brass-500, 45%);
+  }
+
+  // Read-only "End radius: auto" line: an engraved strip with a dashed hairline, so it reads as set by
+  // the machine rather than as a field to edit.
+  .re-auto {
+    border: 1px dashed var(--color-rule-strong);
+    border-radius: var(--radius-plate);
+    background: repeating-linear-gradient(135deg, transparent 0 6px, tint(--color-brass-400, 3%) 6px 7px);
+  }
+}
