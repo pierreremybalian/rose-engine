@@ -316,7 +316,9 @@ export class RenderApp implements IRenderApp {
     this.canvas = renderer.domElement;
     Object.assign(this.canvas.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', display: 'block' });
 
-    if (getComputedStyle(container).position === 'static') container.style.position = 'relative';
+    // The container must already be positioned (the app's viewport is `absolute inset-0`). Don't patch it here:
+    // on a cold first load WebKit can run this before the stylesheet applies, so the container reads as static,
+    // and an inline `position: relative` would then override its class for good and collapse it to 0 px tall.
     container.appendChild(this.canvas);
     this.machineEl = this.makeOverlay('rose-machine-view');
     this.workEl = this.makeOverlay('rose-work-view');

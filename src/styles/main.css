@@ -1,6 +1,5 @@
 /* Tailwind entry + design tokens for the rose-engine UI.
    Component styles that utilities can't express live in app.scss (SCSS reads these tokens as CSS variables). */
-@import url("https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..700&family=IBM+Plex+Mono:wght@400;500&family=Jost:wght@300..600&display=swap");
 @import "tailwindcss";
 
 @source "../ui";
