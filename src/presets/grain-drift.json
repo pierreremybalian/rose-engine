@@ -7,7 +7,7 @@
     "rosetteRadius": 60,
     "rubberRadius": 0.4,
     "workDiameter": 32,
-    "fillEdge": false
+    "fillEdge": true
   },
   "rosettes": [
     {
@@ -23,7 +23,7 @@
   "slide": {
     "startRadius": 4.5,
     "endRadius": 15.5,
-    "passes": 45,
+    "passes": 48,
     "phaseMode": "linear",
     "phaseStep": 0.5,
     "alternateEvery": 1,

@@ -8,7 +8,7 @@ import { createMachineModel } from './render/machine3d';
 import { computeToolpath, prepare } from './engine';
 import type { Prepared, Toolpath } from './engine/types';
 import { mutateRecipe, randomRecipe } from './engine/random';
-import { PRESETS, presetRecipe } from './presets';
+import { DEFAULT_PRESET_ID, PRESETS, presetRecipe } from './presets';
 import { readRecipeFromHash, writeRecipeToHash } from './state/url';
 import { parsePreset, serializePreset } from './export/preset';
 import { buildSVG } from './export/svg';
@@ -23,7 +23,16 @@ const DEFAULT_SPEED = 4;
  *  Locks are view state: share URLs and preset files carry only the recipe. */
 const DEFAULT_LOCKS = ['symmetry.order', 'symmetry.mirror', 'machine.fillEdge'];
 
-const store = new Store({ locks: [...DEFAULT_LOCKS], playback: { playing: false, speed: DEFAULT_SPEED, progress: 0 } });
+/** Presets and share links in metal open with the plate rocking in the light; ink ones open still. */
+const shimmerFor = (r: Recipe) => r.mode === 'metal';
+
+const bootRecipe = presetRecipe(DEFAULT_PRESET_ID)!;
+const store = new Store({
+  recipe: bootRecipe,
+  locks: [...DEFAULT_LOCKS],
+  playback: { playing: false, speed: DEFAULT_SPEED, progress: 0 },
+  shimmer: shimmerFor(bootRecipe),
+});
 
 // ---------- toolpath cache ----------
 // Only these recipe parts change the geometry; mode/ink/metal edits reuse the same Toolpath object,
@@ -95,6 +104,7 @@ const deps: UIDeps = {
     const r = presetRecipe(id);
     if (!r) throw new Error(`Unknown preset: ${id}`);
     loadRecipe(r);
+    store.set({ shimmer: shimmerFor(r) });
   },
   getToolpathInfo: () => toolpathInfo,
   exportSVG(opts) {
@@ -200,6 +210,7 @@ readRecipeFromHash().then((r) => {
   if (r) {
     autoplayNext = true;
     store.setRecipe(r, { history: false });
+    store.set({ shimmer: shimmerFor(r) });
   }
 });
 

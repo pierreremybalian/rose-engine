@@ -18,7 +18,9 @@ import grainDOrge from './grain-d-orge.json';
 import fineBarleycorn from './fine-barleycorn.json';
 import grainDrift from './grain-drift.json';
 
+/** Menu order. The first entry is also the pattern the app opens with. */
 const SOURCES: [string, unknown][] = [
+  ['grain-d-orge', grainDOrge],
   ['barleycorn', barleycorn],
   ['basket-weave', basketWeave],
   ['moire-wave', moireWave],
@@ -31,7 +33,6 @@ const SOURCES: [string, unknown][] = [
   ['harlequin', harlequin],
   ['petals', petals],
   ['blued-flame', bluedFlame],
-  ['grain-d-orge', grainDOrge],
   ['fine-barleycorn', fineBarleycorn],
   ['grain-drift', grainDrift],
 ];
@@ -40,6 +41,9 @@ export const PRESETS: { id: string; name: string; recipe: Recipe }[] = SOURCES.m
   const recipe = parsePresetObject(data);
   return { id, name: recipe.name, recipe };
 });
+
+/** The preset the app opens with on a first visit (no share link in the URL): the first in the menu. */
+export const DEFAULT_PRESET_ID = PRESETS[0].id;
 
 /** A fresh copy of a built-in preset's recipe (callers may mutate it). */
 export function presetRecipe(id: string): Recipe | null {
