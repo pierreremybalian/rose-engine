@@ -1,7 +1,9 @@
 // mountUI: builds the workshop shell (top bar, panel / drawer, viewport, transport) and wires it to the store.
 import '../styles/main.css';
 import '../styles/app.scss';
+import { initAnalytics } from '../analytics';
 import type { AppState, Store } from '../state/store';
+import { createConsent } from './consent';
 import { h } from './dom';
 import { createExportDialog } from './exportDialog';
 import { bindKeyboard } from './keyboard';
@@ -62,6 +64,7 @@ export function mountUI(root: HTMLElement, store: Store, deps: UIDeps): MountedU
     workViewport,
     h('div', { class: 're-frame absolute inset-0', 'aria-hidden': 'true' }, h('i'), h('i'), h('i'), h('i')),
   );
+  if (initAnalytics()) main.append(createConsent());
   topbar.el.classList.add('col-span-full', 're-rise');
   transport.el.classList.add('re-rise', '[animation-delay:180ms]', 'desk:col-start-2', 'desk:row-start-3');
 

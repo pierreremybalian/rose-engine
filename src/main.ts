@@ -16,6 +16,7 @@ import { buildGcode } from './export/gcode';
 import { exportPNG } from './export/png';
 import { downloadBlob, downloadText } from './export/download';
 import { fileName } from './export/filename';
+import { track } from './analytics';
 
 const DEFAULT_SPEED = 4;
 
@@ -90,14 +91,17 @@ const deps: UIDeps = {
   random() {
     const s = store.get();
     loadRecipe(randomRecipe(randomSeed(), s.recipe, s.locks));
+    track('random_pattern', { mode: s.recipe.mode });
   },
   mutate() {
     const s = store.get();
     loadRecipe(mutateRecipe(s.recipe, randomSeed(), s.locks));
+    track('mutate_pattern', { mode: s.recipe.mode });
   },
   async share() {
     await writeRecipeToHash(store.get().recipe);
     await navigator.clipboard.writeText(location.href);
+    track('share', { method: 'link', content_type: 'pattern' });
   },
   presets: PRESETS.map(({ id, name }) => ({ id, name })),
   loadPreset(id) {
@@ -105,16 +109,19 @@ const deps: UIDeps = {
     if (!r) throw new Error(`Unknown preset: ${id}`);
     loadRecipe(r);
     store.set({ shimmer: shimmerFor(r) });
+    track('load_preset', { preset: id });
   },
   getToolpathInfo: () => toolpathInfo,
   exportSVG(opts) {
     const { recipe, toolpath: tp } = current();
     downloadText(buildSVG(recipe, tp, opts), fileName(recipe, 'svg'), 'image/svg+xml');
+    track('export_file', { format: 'svg', mode: recipe.mode });
   },
   async exportPNG(opts) {
     const { recipe } = current();
     const blob = await exportPNG(app, opts);
     downloadBlob(blob, fileName(recipe, 'png'));
+    track('export_file', { format: 'png', mode: recipe.mode });
   },
   previewGcode(opts) {
     const { recipe, toolpath: tp } = current();
@@ -123,13 +130,16 @@ const deps: UIDeps = {
   exportGcode(opts) {
     const { recipe, toolpath: tp } = current();
     downloadText(buildGcode(recipe, tp, opts).text, fileName(recipe, 'gcode'), 'text/plain');
+    track('export_file', { format: 'gcode', mode: recipe.mode });
   },
   savePreset() {
     const { recipe } = current();
     downloadText(serializePreset(recipe), fileName(recipe, 'json'), 'application/json');
+    track('export_file', { format: 'preset', mode: recipe.mode });
   },
   loadPresetText(text) {
     loadRecipe(parsePreset(text));
+    track('import_preset');
   },
   resetCamera: (preset) => app.setCameraPreset(preset),
 };
@@ -211,6 +221,7 @@ readRecipeFromHash().then((r) => {
     autoplayNext = true;
     store.setRecipe(r, { history: false });
     store.set({ shimmer: shimmerFor(r) });
+    track('open_shared_link', { mode: r.mode });
   }
 });
 
