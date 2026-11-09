@@ -20,6 +20,15 @@
       background: repeating-linear-gradient(90deg, tint(--color-brass-400, 18%) 0 1px, transparent 1px 4px);
       opacity: 0.55;
     }
+
+    // Room for the Hire Me corner link (_hire.scss): a column at the right where the bar is wide enough to put
+    // it beside the controls, a strip under the last row on phones.
+    @media (min-width: 36rem) {
+      padding-right: calc(max(14px, env(safe-area-inset-right)) + 3.5rem);
+    }
+    @media (max-width: 35.99rem) {
+      padding-bottom: calc(max(14px, env(safe-area-inset-bottom)) + 1.25rem);
+    }
   }
 
   // Play button: a brass crown you could wind.

@@ -1,0 +1,47 @@
+@use '../tokens' as *;
+
+@layer components {
+  // "Hire Me" corner link (static markup in index.html). Above the work view and transport, below the drawer
+  // scrim (z 35), the drawer (z 40), toasts, tooltips and the export dialog (top layer). The transport leaves
+  // room for it (_transport.scss).
+  .re-hire {
+    position: fixed;
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    z-index: 30;
+    padding: 5px 11px;
+    border: 1px solid var(--color-rule-strong);
+    border-radius: var(--radius-knob);
+    background: color-mix(in oklab, var(--color-ink-950) 78%, transparent);
+    backdrop-filter: blur(8px);
+    color: var(--color-vellum-dim);
+    font: 450 11.5px/1 var(--font-sans);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    text-decoration: none;
+    transition:
+      color 0.15s,
+      border-color 0.15s,
+      background-color 0.15s;
+
+    &:hover {
+      color: var(--color-brass-200);
+      border-color: tint(--color-brass-400, 55%);
+      background-color: color-mix(in oklab, var(--color-ink-800) 92%, transparent);
+    }
+    &:focus-visible {
+      @include focus-ring(3px);
+    }
+  }
+
+  // The open drawer is modal: the link leaves with everything else behind it.
+  #app:has(.re-app[data-drawer='open']) ~ .re-hire {
+    visibility: hidden;
+  }
+
+  @media print {
+    .re-hire {
+      display: none;
+    }
+  }
+}
