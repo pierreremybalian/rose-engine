@@ -231,6 +231,8 @@ function mirrorAxis(r: Recipe): number | null {
 
 /** What symmetry the recipe actually has (readout; independent of recipe.symmetry). */
 export function analyzeSymmetry(r: Recipe): SymmetryInfo {
+  // Straight-line patterns are lattices, not rosettes: no rotational order is claimed for them.
+  if (r.straight?.enabled) return { order: 1, mirror: false };
   const order = rotationalOrder(r);
   const axis = mirrorAxis(r);
   const info: SymmetryInfo = { order, mirror: axis !== null };
@@ -429,6 +431,7 @@ export function enforceSymmetry(r: Recipe): Recipe {
   const N = Math.round(fin(sym?.order, 0));
   const mirror = !!sym?.mirror;
   if (N < 2 && !mirror) return r;
+  if (r.straight?.enabled) return r;
   const d = new Draft(r);
   if (N >= 2) enforceOrder(d, N);
   if (mirror) enforceMirror(d);

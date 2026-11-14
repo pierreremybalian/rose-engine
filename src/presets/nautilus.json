@@ -1,8 +1,8 @@
 {
-  "version": 2,
+  "version": 3,
   "name": "Nautilus",
   "seed": 0,
-  "mode": "ink",
+  "mode": "metal",
   "machine": {
     "rosetteRadius": 60,
     "rubberRadius": 2,
@@ -46,6 +46,12 @@
     "e": 0,
     "angle": 0
   },
+  "straight": {
+    "enabled": false,
+    "angle": 0,
+    "crossings": 1,
+    "crossAngle": 0
+  },
   "ink": {
     "palette": [
       "#e8d8a8",
@@ -58,9 +64,9 @@
     "opacity": 0.95
   },
   "metal": {
-    "material": "silver",
+    "material": "blued",
     "toolAngle": 120,
-    "baseDepth": 0.08,
+    "baseDepth": 0.38,
     "lightAngle": 35,
     "lightElevation": 40,
     "enamel": false,

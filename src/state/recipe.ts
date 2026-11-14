@@ -1,7 +1,7 @@
 // CONTRACT FILE — shared by every module. Change only with care; other code depends on these shapes.
 // All lengths are millimetres, all user-facing angles are degrees.
 
-export const RECIPE_VERSION = 2;
+export const RECIPE_VERSION = 3;
 
 export type ProfileKind = 'sine' | 'convex' | 'concave' | 'flame' | 'square' | 'saw' | 'triangle';
 /** 'rock' = rosette pushes the headstock sideways (radial modulation of the cut).
@@ -78,6 +78,23 @@ export interface EllipticalChuck {
   angle: number;
 }
 
+/**
+ * Straight-line engine. When enabled it replaces the rose engine's spindle: every pass is a straight line across the
+ * plate instead of a ring. The rosettes become pattern bars (lobes = bumps across the plate diameter) and the slide
+ * program steps the line sideways, from -end to +end radius (start radius is not used). The eccentric and elliptical
+ * chucks are not used. Crossings repeat the whole program at evenly spaced (or crossAngle-spaced) line angles:
+ * 1 = parallel lines (pinstripe, straight waves), 2 at 90° = a square grid (Clous de Paris, tapisserie).
+ */
+export interface StraightLine {
+  enabled: boolean;
+  /** Direction of the first set of lines, degrees (0 = horizontal, along 3–9). */
+  angle: number;
+  /** Integer >= 1: number of line sets. */
+  crossings: number;
+  /** Angle between successive sets, degrees. 0 = evenly spaced (180° / crossings). */
+  crossAngle: number;
+}
+
 /** Pattern symmetry constraint. Enforced by enforceSymmetry() (src/engine/symmetry.ts) on UI edits and Random/Mutate. */
 export interface Symmetry {
   /** 0 = free (readout only). N >= 2 = N-fold rotational symmetry: lobe counts are multiples of N; eccentric
@@ -130,6 +147,7 @@ export interface Recipe {
   slide: SlideProgram;
   eccentric: EccentricChuck;
   elliptical: EllipticalChuck;
+  straight: StraightLine;
   ink: InkSettings;
   metal: MetalSettings;
   symmetry: Symmetry;
@@ -160,7 +178,7 @@ export function defaultRecipe(): Recipe {
     version: RECIPE_VERSION,
     name: 'Barleycorn',
     seed: 0,
-    mode: 'ink',
+    mode: 'metal',
     machine: { rosetteRadius: 60, rubberRadius: 2, workDiameter: 100, fillEdge: false },
     rosettes: [defaultRosette({ id: 'r0' })],
     slide: {
@@ -177,6 +195,7 @@ export function defaultRecipe(): Recipe {
     },
     eccentric: { enabled: false, offset: 0, angle: 0, divisions: 1, divisionStep: 0 },
     elliptical: { enabled: false, e: 0, angle: 0 },
+    straight: { enabled: false, angle: 0, crossings: 1, crossAngle: 0 },
     ink: {
       palette: ['#1d2a5c', '#b0303a', '#2f6b4f'],
       colorMode: 'single',

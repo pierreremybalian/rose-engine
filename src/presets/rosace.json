@@ -1,8 +1,8 @@
 {
-  "version": 2,
+  "version": 3,
   "name": "Rosace",
   "seed": 0,
-  "mode": "ink",
+  "mode": "metal",
   "machine": {
     "rosetteRadius": 60,
     "rubberRadius": 1,
@@ -46,6 +46,12 @@
     "e": 0,
     "angle": 0
   },
+  "straight": {
+    "enabled": false,
+    "angle": 0,
+    "crossings": 1,
+    "crossAngle": 0
+  },
   "ink": {
     "palette": [
       "#3a2d7a",
@@ -59,8 +65,8 @@
   },
   "metal": {
     "material": "silver",
-    "toolAngle": 120,
-    "baseDepth": 0.08,
+    "toolAngle": 140,
+    "baseDepth": 0.34,
     "lightAngle": 35,
     "lightElevation": 40,
     "enamel": false,

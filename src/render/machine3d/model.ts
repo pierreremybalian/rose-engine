@@ -134,8 +134,10 @@ function computeLayout(recipe: Recipe): Layout {
   const activePump = activePumpRos ? stack.length - 1 : -1;
   const zPumpStand = activePump >= 0 ? stack[activePump].z - PUMP_BODY - stack[activePump].hMax - PUMP_BALL - 38 : zStackEnd;
   const zHW = (activePump >= 0 ? zPumpStand : zStackEnd) - 36;
-  const ecc = recipe.eccentric.enabled ? Math.abs(recipe.eccentric.offset) : 0;
-  const ell = recipe.elliptical.enabled ? Math.abs(recipe.elliptical.e) : 0;
+  // The straight-line engine does not use the chucks.
+  const chucks = !recipe.straight?.enabled;
+  const ecc = chucks && recipe.eccentric.enabled ? Math.abs(recipe.eccentric.offset) : 0;
+  const ell = chucks && recipe.elliptical.enabled ? Math.abs(recipe.elliptical.e) : 0;
   const rc = Math.min(46, Math.max(18, q(D * 0.3, 2)));
   const need = Math.max(160, R0 + maxRockAmp + 22, D / 2 + ecc + ell + 16, 64);
   const H = BED_TOP + q(need, 10);
@@ -521,8 +523,8 @@ export class MachineModel implements IMachineModel {
     this.discBack.scale.set(D, D, 1);
     this.discBack.position.z = -DISC_T;
     // Chucks.
-    const ecc = recipe.eccentric.enabled;
-    const ell = recipe.elliptical.enabled;
+    const ecc = !recipe.straight?.enabled && recipe.eccentric.enabled;
+    const ell = !recipe.straight?.enabled && recipe.elliptical.enabled;
     b.chuckPlate.visible = ecc || ell;
     b.spacer.visible = !(ecc || ell);
     b.ellHousing.visible = ell;

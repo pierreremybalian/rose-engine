@@ -9,7 +9,7 @@ export interface Pass {
   division: number;
   /** Pass index within the slide program (0..slide.passes-1). */
   slidePass: number;
-  /** true = last sample connects back to the first (concentric loop). false for spiral paths. */
+  /** true = last sample connects back to the first (concentric loop). false for spiral and straight-line paths. */
   closed: boolean;
   /** Index of the first sample in the Toolpath arrays. */
   start: number;
@@ -56,8 +56,13 @@ export interface Pose {
   pump: number;
   /** mm, tool distance from spindle axis set by the cross-slide. */
   slideRadius: number;
-  /** Radians, eccentric dividing-wheel rotation of the work about its own centre. */
+  /** Radians, eccentric dividing-wheel rotation of the work about its own centre.
+   *  Straight-line engine: the angle of this crossing's lines relative to the first set. */
   divisionAngle: number;
+  /** Straight-line engine only: mm travelled along the line, centred on the plate (-half length .. +half length).
+   *  spindleAngle is then the crank / rosette angle, -2pi * travel / workDiameter (not cumulative, and not
+   *  Toolpath.theta, which stays a monotonic clock); slideRadius is the signed sideways offset of the line. */
+  travel?: number;
 }
 
 /** Precomputed per-recipe data (e.g. rubber follower tables). Opaque to consumers. */

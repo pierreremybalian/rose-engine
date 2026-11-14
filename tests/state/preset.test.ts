@@ -118,16 +118,17 @@ describe('parsePreset', () => {
 
   it('runs migrations up to the current version', () => {
     // A missing or old version is treated as v1 and migrated step by step.
-    expect(RECIPE_VERSION).toBe(2);
-    expect(Object.keys(MIGRATIONS).map(Number)).toEqual([1]);
+    expect(RECIPE_VERSION).toBe(3);
+    expect(Object.keys(MIGRATIONS).map(Number)).toEqual([1, 2]);
     const r = parsePreset(JSON.stringify({ version: 0, slide: { passes: 3 } }));
     expect(r.version).toBe(RECIPE_VERSION);
     expect(r.slide.passes).toBe(3);
   });
 
-  it('migrates a v1 preset to v2: same design, Fill to edge off, symmetry free', () => {
+  it('migrates a v1 preset to the current version: same design, Fill to edge off, symmetry free, rose engine', () => {
     const r = parsePreset(JSON.stringify(V1_PRESET));
-    expect(r.version).toBe(2);
+    expect(r.version).toBe(RECIPE_VERSION);
+    expect(r.straight).toEqual({ enabled: false, angle: 0, crossings: 1, crossAngle: 0 });
     expect(r.machine).toEqual({ ...V1_PRESET.machine, fillEdge: false });
     expect(r.symmetry).toEqual({ order: 0, mirror: false });
     expect(r.slide).toEqual(V1_PRESET.slide);
@@ -145,6 +146,13 @@ describe('parsePreset', () => {
     expect(r.symmetry).toEqual({ order: 12, mirror: true });
     // Garbage sections are still rejected, not papered over.
     expect(() => parsePreset(JSON.stringify({ version: 1, machine: 5 }))).toThrow(/"machine" must be an object/);
+  });
+
+  it('the v2 → v3 step adds a disengaged straight-line engine and keeps one that is already there', () => {
+    const m = MIGRATIONS[2];
+    expect(m({ version: 2 })).toEqual({ version: 3, straight: { enabled: false, angle: 0, crossings: 1, crossAngle: 0 } });
+    const r = parsePreset(JSON.stringify({ version: 2, straight: { enabled: true, angle: 200, crossings: 9, crossAngle: -30 } }));
+    expect(r.straight).toEqual({ enabled: true, angle: 20, crossings: 6, crossAngle: 150 });
   });
 
   it('clamps and validates the v2 fields', () => {

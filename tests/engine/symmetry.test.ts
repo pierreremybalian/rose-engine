@@ -4,7 +4,10 @@ import { computeToolpath, poseAt, prepare, toolPoint } from '../../src/engine/ma
 import { mulberry32, randomRecipe } from '../../src/engine/random';
 import { PRESETS } from '../../src/presets';
 import { PARAMS, ROSETTE_PARAMS, getPath } from '../../src/state/params';
-import { defaultRecipe, defaultRosette, type Recipe, type Rosette } from '../../src/state/recipe';
+import { defaultRecipe as appDefaultRecipe, defaultRosette, type Recipe, type Rosette } from '../../src/state/recipe';
+
+/** These tests were written against an ink default; the app now opens in metal. */
+const defaultRecipe = (): Recipe => ({ ...appDefaultRecipe(), mode: 'ink' });
 import type { Toolpath } from '../../src/engine/types';
 
 const TAU = Math.PI * 2;

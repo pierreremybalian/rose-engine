@@ -1,0 +1,78 @@
+{
+  "version": 3,
+  "name": "Pinstripe",
+  "seed": 0,
+  "mode": "metal",
+  "machine": {
+    "rosetteRadius": 60,
+    "rubberRadius": 0,
+    "workDiameter": 100,
+    "fillEdge": true
+  },
+  "rosettes": [
+    {
+      "id": "a",
+      "enabled": false,
+      "axis": "rock",
+      "lobes": 24,
+      "amplitude": 0.5,
+      "profile": "sine",
+      "phase": 0
+    }
+  ],
+  "slide": {
+    "startRadius": 0,
+    "endRadius": 50.2,
+    "passes": 202,
+    "phaseMode": "linear",
+    "phaseStep": 0,
+    "alternateEvery": 1,
+    "alternateFraction": 0.5,
+    "phaseCustom": [
+      0
+    ],
+    "amplitudeTaper": 1,
+    "spiral": false
+  },
+  "eccentric": {
+    "enabled": false,
+    "offset": 0,
+    "angle": 0,
+    "divisions": 1,
+    "divisionStep": 0
+  },
+  "elliptical": {
+    "enabled": false,
+    "e": 0,
+    "angle": 0
+  },
+  "straight": {
+    "enabled": true,
+    "angle": 90,
+    "crossings": 1,
+    "crossAngle": 0
+  },
+  "ink": {
+    "palette": [
+      "#16161a"
+    ],
+    "colorMode": "single",
+    "paper": "#f6f3ec",
+    "lineWidth": 0.15,
+    "opacity": 0.9
+  },
+  "metal": {
+    "material": "steel",
+    "toolAngle": 120,
+    "baseDepth": 0.16,
+    "lightAngle": 20,
+    "lightElevation": 35,
+    "enamel": false,
+    "enamelColor": "#1b3fa0",
+    "enamelOpacity": 0.45
+  },
+  "symmetry": {
+    "order": 0,
+    "mirror": false
+  }
+}

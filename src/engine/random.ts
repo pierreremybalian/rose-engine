@@ -1228,8 +1228,9 @@ function pumpReach(r: Recipe): number {
 /** Distance between neighbouring cuts, mm (null when there is a single pass). Measured over the span the engine
  *  cuts: effectiveEndRadius (the fill end when machine.fillEdge is on). */
 export function passSpacing(r: Recipe): number | null {
-  const span = Math.abs(effectiveEndRadius(r) - r.slide.startRadius);
-  if (r.slide.spiral) {
+  // Straight-line engine: the lines run from -end to +end across the centre.
+  const span = r.straight?.enabled ? 2 * Math.abs(effectiveEndRadius(r)) : Math.abs(effectiveEndRadius(r) - r.slide.startRadius);
+  if (r.slide.spiral && !r.straight?.enabled) {
     const divs = r.eccentric.enabled ? Math.max(1, r.eccentric.divisions) : 1;
     return r.slide.passes >= 1 && span > 0 ? span / r.slide.passes / divs : null;
   }
@@ -1257,7 +1258,7 @@ const GAP_BUDGET = 300_000;
 export function maxPassGap(r: Recipe): number | null {
   const sp = passSpacing(r);
   if (!sp) return null;
-  if (r.eccentric.enabled && Math.round(r.eccentric.divisions) > 1) return sp;
+  if (!r.straight?.enabled && r.eccentric.enabled && Math.round(r.eccentric.divisions) > 1) return sp;
   const rock = r.rosettes.filter((x) => x.enabled && x.axis !== 'pump' && Number.isFinite(x.amplitude) && x.amplitude !== 0);
   if (!rock.length) return sp;
 

@@ -63,23 +63,23 @@ describe('built-in presets', () => {
     console.log(`Fine Barleycorn: effective end ${end.toFixed(3)} mm, ${r.slide.passes} passes, spacing ${spacing.toFixed(4)} mm, 2A/spacing ${((2 * sumA) / spacing).toFixed(3)}, width ${width.toFixed(3)} mm = ${ratio.toFixed(3)} × (spacing + 2A), grooveCoverage ${grooveCoverage(r)!.toFixed(3)}`);
   });
 
-  it('has 10–15 presets with unique ids and names', () => {
+  it('has 10–24 presets with unique ids and names', () => {
     expect(PRESETS.length).toBeGreaterThanOrEqual(10);
-    expect(PRESETS.length).toBeLessThanOrEqual(15);
+    expect(PRESETS.length).toBeLessThanOrEqual(24);
     expect(new Set(PRESETS.map((p) => p.id)).size).toBe(PRESETS.length);
     expect(new Set(PRESETS.map((p) => p.name)).size).toBe(PRESETS.length);
   });
 
-  it('mixes ink and metal and covers the main machine features', () => {
+  it('opens every preset as engraved metal and covers the main machine features', () => {
     const r = PRESETS.map((p) => p.recipe);
-    expect(r.some((x) => x.mode === 'ink')).toBe(true);
-    expect(r.some((x) => x.mode === 'metal')).toBe(true);
+    expect(r.every((x) => x.mode === 'metal')).toBe(true);
     expect(r.some((x) => x.eccentric.enabled)).toBe(true);
     expect(r.some((x) => x.elliptical.enabled)).toBe(true);
     expect(r.some((x) => x.slide.spiral)).toBe(true);
     expect(r.some((x) => x.slide.phaseMode === 'alternate' && x.slide.alternateEvery > 1)).toBe(true);
     expect(r.some((x) => x.mode === 'metal' && x.metal.enamel && x.rosettes.some((ro) => ro.axis === 'pump'))).toBe(true);
-    expect(r.some((x) => x.mode === 'ink' && x.ink.palette.length > 1 && x.ink.colorMode !== 'single')).toBe(true);
+    // Switched to ink, some presets still draw in several colours.
+    expect(r.some((x) => x.ink.palette.length > 1 && x.ink.colorMode !== 'single')).toBe(true);
   });
 
   for (const p of PRESETS) {
@@ -94,7 +94,8 @@ describe('built-in presets', () => {
       expect(p.recipe.rosettes.length).toBeGreaterThan(0);
       // Enamel stays translucent so the engraving shows through.
       expect(p.recipe.metal.enamelOpacity).toBeLessThanOrEqual(0.55);
-      if (p.recipe.mode === 'metal') {
+      // Tapisserie is the one metal pattern whose flats are the design: raised square tiles between the grooves.
+      if (p.recipe.mode === 'metal' && p.id !== 'tapisserie') {
         // Fully cut: the shallowest groove is 1.0–1.4 × the widest gap between neighbouring cut centrelines.
         const cov = grooveCoverage(p.recipe)!;
         expect(cov).toBeGreaterThanOrEqual(1);

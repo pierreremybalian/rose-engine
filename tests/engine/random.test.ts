@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { FAMILIES, MIN_INK_CONTRAST, contrastRatio, grooveCoverage, maxPassGap, mirrorPhase, mulberry32, mutateRecipe, passSpacing, randomRecipe } from '../../src/engine/random';
 import { PALETTES, PARAMS, ROSETTE_PARAMS, getPath } from '../../src/state/params';
-import { defaultRecipe, defaultRosette, type Recipe } from '../../src/state/recipe';
+import { defaultRecipe as appDefaultRecipe, defaultRosette, type Recipe } from '../../src/state/recipe';
+
+/** These tests were written against an ink default; the app now opens in metal. */
+const defaultRecipe = (): Recipe => ({ ...appDefaultRecipe(), mode: 'ink' });
 import { computeToolpath, prepare } from '../../src/engine/index';
 import { chuckReach, effectiveEndRadius, fillEndRadius, plateRadius, rockReach } from '../../src/engine/plate';
 

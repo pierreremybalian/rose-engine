@@ -17,11 +17,23 @@ import bluedFlame from './blued-flame.json';
 import grainDOrge from './grain-d-orge.json';
 import fineBarleycorn from './fine-barleycorn.json';
 import grainDrift from './grain-drift.json';
+import clousDeParis from './clous-de-paris.json';
+import tapisserie from './tapisserie.json';
+import pinstripe from './pinstripe.json';
+import wave from './wave.json';
+import ecaillesDePoisson from './ecailles-de-poisson.json';
+import circular from './circular.json';
 
 /** Menu order. The first entry is also the pattern the app opens with. */
 const SOURCES: [string, unknown][] = [
   ['grain-d-orge', grainDOrge],
   ['barleycorn', barleycorn],
+  ['clous-de-paris', clousDeParis],
+  ['tapisserie', tapisserie],
+  ['pinstripe', pinstripe],
+  ['wave', wave],
+  ['ecailles-de-poisson', ecaillesDePoisson],
+  ['circular', circular],
   ['basket-weave', basketWeave],
   ['moire-wave', moireWave],
   ['flame', flame],

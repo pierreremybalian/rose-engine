@@ -1,6 +1,9 @@
 // Hand-built Toolpath fixtures in the exact contract shape (src/engine/types.ts): work frame, +Y up, mm.
 import type { Pass, Toolpath } from '../../src/engine/types';
-import { defaultRecipe, type Recipe } from '../../src/state/recipe';
+import { defaultRecipe as appDefaultRecipe, type Recipe } from '../../src/state/recipe';
+
+/** These tests were written against an ink default; the app now opens in metal. */
+const defaultRecipe = (): Recipe => ({ ...appDefaultRecipe(), mode: 'ink' });
 
 export interface StrokeSpec {
   points: [number, number, number?][];

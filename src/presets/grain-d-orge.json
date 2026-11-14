@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "name": "Grain d'Orge",
   "seed": 0,
   "mode": "metal",
@@ -45,6 +45,12 @@
     "enabled": false,
     "e": 0,
     "angle": 0
+  },
+  "straight": {
+    "enabled": false,
+    "angle": 0,
+    "crossings": 1,
+    "crossAngle": 0
   },
   "ink": {
     "palette": [

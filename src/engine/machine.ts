@@ -11,13 +11,21 @@
 //   radius and taper ramp linearly in q (start -> end over q = 0..passes). Linear phase drifts
 //   continuously (q * phaseStep). Alternate/custom phases step at revolution boundaries, blended with a
 //   smoothstep over the first lobe of the new revolution so the open path stays continuous.
+// - Straight-line engine (recipe.straight.enabled): every pass is an open straight line. Within a pass the local
+//   parameter theta in [0, 2pi] maps to travel t = -L + 2L * theta / 2pi along the line (L = straightHalfLength).
+//   Rock rosettes act as pattern bars: u = lobes * t / workDiameter + phases (lobes = bumps across the plate), and
+//   the phase program works as on the rose engine (a 'degree' of phase = 1/360 of the plate diameter). As on a real
+//   straight-line engine, the crank turns the rosettes in step with the slide: spindleAngle = -2pi * t / workDiameter
+//   (one turn per plate diameter of travel), so u is the rose engine's u at that angle. Pass offsets
+//   run from -end to +end radius. Crossings reuse the division slots: set d is turned by d * crossStep. The work
+//   point is t * dir + (offset + rock) * normal, dir = (cos a, sin a), a = straight.angle + d * crossStep.
 // - End radius: every path (concentric and spiral) runs to effectiveEndRadius(recipe) (src/engine/plate.ts):
 //   slide.endRadius, or with machine.fillEdge the radius that carries the last pass past the plate rim.
 import type { ProfileKind, Recipe } from '../state/recipe';
 import type { Pass, Pose, Prepared, Toolpath } from './types';
 import { buildRubberTable, profileValue, sampleTable, RUBBER_TABLE_SIZE } from './rosette';
 import { makeChuckXform, toolToWork, workPlacementXf, type ChuckXform } from './chucks';
-import { effectiveEndRadius } from './plate';
+import { effectiveEndRadius, straightHalfLength } from './plate';
 
 const TAU = Math.PI * 2;
 
@@ -59,6 +67,14 @@ interface EngineData {
   xf: ChuckXform;
   samplesPerRev: number;
   maxLobes: number;
+  /** Straight-line engine on. */
+  straight: boolean;
+  /** Straight: half length of every line, mm. */
+  halfLen: number;
+  /** Straight: length over which a rosette's lobes are spread (plate diameter), mm. */
+  refLen: number;
+  /** Straight: angle of the first line set, radians. */
+  lineAngle: number;
 }
 
 /** Prepared recipe. `engine` is private to the engine; treat it as opaque. */
@@ -117,8 +133,17 @@ export function chooseSamplesPerRev(maxLobes: number, totalRevs: number, extraSa
 export function prepare(recipe: Recipe, opts: PrepareOptions = {}): EnginePrepared {
   const s = recipe.slide;
   const passes = Math.max(1, Math.round(num(s.passes, 1)));
-  const spiral = !!s.spiral;
-  const xf = makeChuckXform(recipe);
+  const st = recipe.straight;
+  const straight = !!st?.enabled;
+  const spiral = !straight && !!s.spiral;
+  let xf = makeChuckXform(recipe);
+  if (straight) {
+    const crossings = Math.max(1, Math.round(num(st.crossings, 1)));
+    const stepDeg = num(st.crossAngle, 0) || 180 / crossings;
+    xf = { ellE: 0, ellC2: 1, ellS2: 0, eccX: 0, eccY: 0, divisions: crossings, divStep: (stepDeg * Math.PI) / 180 };
+  }
+  const halfLen = straightHalfLength(recipe);
+  const refLen = Math.max(1, num(recipe.machine?.workDiameter, 100));
   const base = num(recipe.machine?.rosetteRadius, 60);
   const rubber = Math.max(0, num(recipe.machine?.rubberRadius, 0));
 
@@ -146,22 +171,25 @@ export function prepare(recipe: Recipe, opts: PrepareOptions = {}): EnginePrepar
   });
 
   const totalRevs = passes * xf.divisions;
-  const extra = spiral ? xf.divisions : 0;
+  const extra = spiral ? xf.divisions : straight ? totalRevs : 0;
+  // A straight line carries lobes * (2L / plate diameter) bumps: size the sampling for that many.
+  const lobesPerStroke = straight ? Math.ceil((maxLobes * 2 * halfLen) / refLen) : maxLobes;
   const maxSamples = opts.maxSamples ?? MAX_TOTAL_SAMPLES;
   let spr: number;
   if (opts.samplesPerRev && opts.samplesPerRev > 0) {
     spr = Math.round(opts.samplesPerRev);
     if (Number.isFinite(maxSamples)) spr = Math.min(spr, Math.max(MIN_SAMPLES_PER_REV, Math.floor((maxSamples - extra) / totalRevs)));
   } else {
-    spr = chooseSamplesPerRev(maxLobes, totalRevs, extra, maxSamples);
+    spr = chooseSamplesPerRev(lobesPerStroke, totalRevs, extra, maxSamples);
   }
 
+  const endR = num(effectiveEndRadius(recipe), num(s.endRadius, 0));
   const engine: EngineData = {
     passes,
     divisions: xf.divisions,
     spiral,
-    startR: num(s.startRadius, 0),
-    endR: num(effectiveEndRadius(recipe), num(s.endRadius, 0)),
+    startR: straight ? (passes > 1 ? -endR : 0) : num(s.startRadius, 0),
+    endR: straight ? (passes > 1 ? endR : 0) : endR,
     taperEnd: num(s.amplitudeTaper, 1),
     phaseMode: s.phaseMode,
     phaseStep: num(s.phaseStep, 0),
@@ -174,6 +202,10 @@ export function prepare(recipe: Recipe, opts: PrepareOptions = {}): EnginePrepar
     xf,
     samplesPerRev: spr,
     maxLobes,
+    straight,
+    halfLen,
+    refLen,
+    lineAngle: straight ? (num(st.angle, 0) * Math.PI) / 180 : 0,
   };
   return { recipe, engine };
 }
@@ -236,12 +268,16 @@ const P_ROCK = 3;
 const P_PUMP = 4;
 const P_RADIUS = 5;
 const P_DIVANGLE = 6;
+const P_TRAVEL = 7;
+const POSE_SLOTS = 8;
 
-function rosetteSum(e: EngineData, list: RosetteRT[], theta: number, q: number, taper: number): number {
+/** Sum of a rosette list. Rose engine: x = spindle theta. Straight-line engine: x = travel along the line, mm. */
+function rosetteSum(e: EngineData, list: RosetteRT[], x: number, q: number, taper: number): number {
   let sum = 0;
   for (let i = 0; i < list.length; i++) {
     const rt = list[i];
-    const u = (-rt.lobes * theta) / TAU + rt.phaseU + programPhaseU(e, rt, q);
+    const pos = e.straight ? (rt.lobes * x) / e.refLen : (-rt.lobes * x) / TAU;
+    const u = pos + rt.phaseU + programPhaseU(e, rt, q);
     const v = rt.table ? sampleTable(rt.table, u) : rt.amplitude * profileValue(rt.profile, u);
     sum += v;
   }
@@ -275,13 +311,25 @@ function evalPose(e: EngineData, pass: number, theta: number, out: Float64Array)
     taper = 1 + (e.taperEnd - 1) * f;
     angle = TAU * g + theta;
   }
+  // Straight-line engine: theta is the clock along the line; the crank turns the rosettes with the travel.
+  const x = e.straight ? -e.halfLen + (2 * e.halfLen * theta) / TAU : theta;
   out[P_DIV] = division;
   out[P_SLIDE] = slidePass;
-  out[P_ANGLE] = angle;
-  out[P_ROCK] = e.rock.length ? rosetteSum(e, e.rock, theta, q, taper) : 0;
-  out[P_PUMP] = e.pump.length ? rosetteSum(e, e.pump, theta, q, taper) : 0;
+  out[P_ANGLE] = e.straight ? (-TAU * x) / e.refLen : angle;
+  out[P_ROCK] = e.rock.length ? rosetteSum(e, e.rock, x, q, taper) : 0;
+  out[P_PUMP] = e.pump.length ? rosetteSum(e, e.pump, x, q, taper) : 0;
   out[P_RADIUS] = radius;
   out[P_DIVANGLE] = division * e.xf.divStep;
+  out[P_TRAVEL] = e.straight ? x : 0;
+}
+
+/** Straight-line engine: work-frame point of travel t on a line at sideways offset rho, set angle a. */
+function linePoint(e: EngineData, t: number, rho: number, divAngle: number, out: { [i: number]: number }): void {
+  const a = e.lineAngle + divAngle;
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  out[0] = t * c - rho * s;
+  out[1] = t * s + rho * c;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -301,9 +349,9 @@ export function strokeCount(prepared: Prepared): number {
  */
 export function poseAt(prepared: Prepared, pass: number, theta: number): Pose {
   const e = getEngine(prepared);
-  const out = new Float64Array(7);
+  const out = new Float64Array(POSE_SLOTS);
   evalPose(e, pass, theta, out);
-  return {
+  const pose: Pose = {
     pass: e.spiral ? out[P_DIV] : Math.min(e.passes * e.divisions - 1, Math.max(0, pass | 0)),
     division: out[P_DIV],
     slidePass: out[P_SLIDE],
@@ -313,12 +361,18 @@ export function poseAt(prepared: Prepared, pass: number, theta: number): Pose {
     slideRadius: out[P_RADIUS],
     divisionAngle: out[P_DIVANGLE],
   };
+  if (e.straight) pose.travel = out[P_TRAVEL];
+  return pose;
 }
 
 /** Work-frame tool point for a pose: x, y in mm (+Y up), z = pump displacement in mm. */
 export function toolPoint(prepared: Prepared, pose: Pose): { x: number; y: number; z: number } {
   const e = getEngine(prepared);
   const o = [0, 0];
+  if (e.straight) {
+    linePoint(e, pose.travel ?? 0, pose.slideRadius + pose.rock, pose.divisionAngle, o);
+    return { x: o[0], y: o[1], z: pose.pump };
+  }
   toolToWork(
     e.xf,
     pose.slideRadius + pose.rock,
@@ -333,7 +387,15 @@ export function toolPoint(prepared: Prepared, pose: Pose): { x: number; y: numbe
 
 /** Rigid placement of the work in the machine frame for a pose (see chucks.workPlacementXf). */
 export function workPlacement(prepared: Prepared, pose: Pose): { rotation: number; x: number; y: number } {
-  return workPlacementXf(getEngine(prepared).xf, pose.spindleAngle, pose.divisionAngle);
+  const e = getEngine(prepared);
+  if (e.straight) {
+    // The work slides along machine Y past the tool, lines turned to run along Y: the line normal maps to +X, so
+    // rot(rotation) * toolPoint = (slideRadius + rock, -travel), then the slide adds (0, travel).
+    let rotation = (-(e.lineAngle + pose.divisionAngle + Math.PI / 2)) % TAU;
+    if (rotation < 0) rotation += TAU;
+    return { rotation, x: 0, y: pose.travel ?? 0 };
+  }
+  return workPlacementXf(e.xf, pose.spindleAngle, pose.divisionAngle);
 }
 
 export function computeToolpath(prepared: Prepared): Toolpath {
@@ -341,7 +403,8 @@ export function computeToolpath(prepared: Prepared): Toolpath {
   const spr = e.samplesPerRev;
   const dTheta = TAU / spr;
   const strokes = e.spiral ? e.divisions : e.passes * e.divisions;
-  const perStroke = e.spiral ? e.passes * spr + 1 : spr;
+  const open = e.spiral || e.straight;
+  const perStroke = e.spiral ? e.passes * spr + 1 : e.straight ? spr + 1 : spr;
   const total = strokes * perStroke;
 
   const xs = new Float32Array(total);
@@ -350,7 +413,7 @@ export function computeToolpath(prepared: Prepared): Toolpath {
   const ts = new Float32Array(total);
   const passes: Pass[] = new Array(strokes);
 
-  const pose = new Float64Array(7);
+  const pose = new Float64Array(POSE_SLOTS);
   const pt = new Float64Array(2);
   const xf = e.xf;
   let minX = Infinity;
@@ -383,14 +446,16 @@ export function computeToolpath(prepared: Prepared): Toolpath {
         cdCached = Math.cos(da);
         sdCached = Math.sin(da);
       }
-      toolToWork(xf, pose[P_RADIUS] + pose[P_ROCK], Math.cos(ang), Math.sin(ang), cdCached, sdCached, pt);
+      if (e.straight) linePoint(e, pose[P_TRAVEL], pose[P_RADIUS] + pose[P_ROCK], da, pt);
+      else toolToWork(xf, pose[P_RADIUS] + pose[P_ROCK], Math.cos(ang), Math.sin(ang), cdCached, sdCached, pt);
       const x = pt[0];
       const y = pt[1];
       const z = pose[P_PUMP];
       xs[k] = x;
       ys[k] = y;
       zs[k] = z;
-      ts[k] = ang;
+      // Straight: the spindle is still, so the clock is the stroke index plus the travel fraction (monotonic).
+      ts[k] = e.straight ? TAU * g + theta : ang;
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
       if (y < minY) minY = y;
@@ -411,7 +476,7 @@ export function computeToolpath(prepared: Prepared): Toolpath {
       py = y;
       k++;
     }
-    if (!e.spiral) {
+    if (!open) {
       const dx = fx - px;
       const dy = fy - py;
       length += Math.sqrt(dx * dx + dy * dy);
@@ -420,7 +485,7 @@ export function computeToolpath(prepared: Prepared): Toolpath {
       index: g,
       division,
       slidePass: e.spiral ? 0 : slidePass,
-      closed: !e.spiral,
+      closed: !open,
       start,
       count: perStroke,
     };

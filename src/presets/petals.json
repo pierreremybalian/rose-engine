@@ -1,8 +1,8 @@
 {
-  "version": 2,
+  "version": 3,
   "name": "Petals",
   "seed": 0,
-  "mode": "ink",
+  "mode": "metal",
   "machine": {
     "rosetteRadius": 60,
     "rubberRadius": 1.5,
@@ -55,6 +55,12 @@
     "e": 0,
     "angle": 0
   },
+  "straight": {
+    "enabled": false,
+    "angle": 0,
+    "crossings": 1,
+    "crossAngle": 0
+  },
   "ink": {
     "palette": [
       "#3a2d7a",
@@ -67,9 +73,9 @@
     "opacity": 0.9
   },
   "metal": {
-    "material": "silver",
+    "material": "gold",
     "toolAngle": 120,
-    "baseDepth": 0.08,
+    "baseDepth": 0.29,
     "lightAngle": 35,
     "lightElevation": 40,
     "enamel": false,

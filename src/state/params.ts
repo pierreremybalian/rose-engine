@@ -2,7 +2,7 @@
 import type { Mode, Recipe, Rosette } from './recipe';
 import { maxUsefulRadius } from '../engine/plate';
 
-export type ParamGroup = 'plate' | 'machine' | 'slide' | 'eccentric' | 'elliptical' | 'ink' | 'metal';
+export type ParamGroup = 'plate' | 'machine' | 'slide' | 'straight' | 'eccentric' | 'elliptical' | 'ink' | 'metal';
 export type ParamType = 'number' | 'int' | 'bool' | 'select' | 'color';
 
 export interface ParamDef {
@@ -31,14 +31,16 @@ export interface ParamDef {
 }
 
 const phaseIs = (m: Recipe['slide']['phaseMode']) => (r: Recipe) => r.slide.phaseMode === m;
+const straightOn = (r: Recipe) => !!r.straight?.enabled;
+const rose = (r: Recipe) => !straightOn(r);
 
 export const PARAMS: ParamDef[] = [
   // Machine
   // Plate
   { key: 'machine.workDiameter', label: 'Plate size', group: 'plate', type: 'number', unit: 'mm', min: 20, max: 300, step: 1, simple: true, help: 'Diameter of the dial or paper disc. Watch dials are about 28–42 mm.' },
   { key: 'machine.fillEdge', label: 'Fill to edge', group: 'plate', type: 'bool', simple: true, help: 'Run the cut out past the rim so the whole plate is engraved.' },
-  { key: 'symmetry.order', label: 'Symmetry', group: 'plate', type: 'int', min: 0, max: 96, step: 1, simple: true, help: '0 = free. N keeps the pattern N-fold symmetric: lobe counts snap to multiples of N.' },
-  { key: 'symmetry.mirror', label: 'Mirror', group: 'plate', type: 'bool', simple: true, visible: (r) => r.symmetry.order >= 2, help: 'Mirror-symmetric about 12–6: symmetric profiles, peaks on 12 o’clock, no twist.' },
+  { key: 'symmetry.order', label: 'Symmetry', group: 'plate', type: 'int', min: 0, max: 96, step: 1, simple: true, visible: rose, help: '0 = free. N keeps the pattern N-fold symmetric: lobe counts snap to multiples of N.' },
+  { key: 'symmetry.mirror', label: 'Mirror', group: 'plate', type: 'bool', simple: true, visible: (r) => rose(r) && r.symmetry.order >= 2, help: 'Mirror-symmetric about 12–6: symmetric profiles, peaks on 12 o’clock, no twist.' },
 
   // Machine
   { key: 'machine.rosetteRadius', label: 'Rosette radius', group: 'machine', type: 'number', unit: 'mm', min: 30, max: 120, step: 1, simple: false, help: 'Mean radius of the cams. Matters for how the rubber rides sharp profiles.' },
@@ -46,8 +48,8 @@ export const PARAMS: ParamDef[] = [
 
   // Slide (cutter) program
   { key: 'slide.passes', label: 'Passes', group: 'slide', type: 'int', min: 1, max: 300, step: 1, simple: true, random: [12, 120] },
-  { key: 'slide.startRadius', label: 'Start radius', group: 'slide', type: 'number', unit: 'mm', min: 0, max: 150, step: 0.1, simple: true, random: [0, 20], dynamic: (r) => ({ max: maxUsefulRadius(r) }) },
-  { key: 'slide.endRadius', label: 'End radius', group: 'slide', type: 'number', unit: 'mm', min: 0.5, max: 150, step: 0.1, simple: true, random: [25, 48], visible: (r) => !r.machine.fillEdge, dynamic: (r) => ({ max: maxUsefulRadius(r) }) },
+  { key: 'slide.startRadius', label: 'Start radius', group: 'slide', type: 'number', unit: 'mm', min: 0, max: 150, step: 0.1, simple: true, random: [0, 20], visible: rose, dynamic: (r) => ({ max: maxUsefulRadius(r) }) },
+  { key: 'slide.endRadius', label: 'End radius', group: 'slide', type: 'number', unit: 'mm', min: 0.5, max: 150, step: 0.1, simple: true, random: [25, 48], visible: (r) => !r.machine.fillEdge, help: 'Straight-line engine: the lines run from −end to +end, across the centre.', dynamic: (r) => ({ max: maxUsefulRadius(r) }) },
   {
     key: 'slide.phaseMode', label: 'Phasing', group: 'slide', type: 'select', simple: true,
     options: [
@@ -60,19 +62,25 @@ export const PARAMS: ParamDef[] = [
   { key: 'slide.alternateEvery', label: 'Alternate every', group: 'slide', type: 'int', unit: 'passes', min: 1, max: 20, step: 1, simple: true, visible: phaseIs('alternate'), random: [1, 6] },
   { key: 'slide.alternateFraction', label: 'Offset', group: 'slide', type: 'number', unit: 'lobe', min: 0, max: 1, step: 0.01, simple: false, visible: phaseIs('alternate'), random: [0.25, 0.75] },
   { key: 'slide.amplitudeTaper', label: 'Amplitude taper', group: 'slide', type: 'number', unit: '×', min: 0, max: 3, step: 0.01, simple: false, random: [0.3, 1.8] },
-  { key: 'slide.spiral', label: 'Spiral (continuous feed)', group: 'slide', type: 'bool', simple: false },
+  { key: 'slide.spiral', label: 'Spiral (continuous feed)', group: 'slide', type: 'bool', simple: false, visible: rose },
+
+  // Straight-line engine
+  { key: 'straight.enabled', label: 'Straight-line engine', group: 'straight', type: 'bool', simple: true, help: 'Cut straight lines across the plate instead of rings: pinstripes, straight waves, Clous de Paris, tapisserie.' },
+  { key: 'straight.angle', label: 'Line angle', group: 'straight', type: 'number', unit: '°', min: 0, max: 180, step: 0.5, simple: true, visible: straightOn, help: '0 = horizontal lines (3–9).' },
+  { key: 'straight.crossings', label: 'Crossings', group: 'straight', type: 'int', min: 1, max: 6, step: 1, simple: true, visible: straightOn, help: '1 = parallel lines. 2 = a crossed grid (Clous de Paris, tapisserie).' },
+  { key: 'straight.crossAngle', label: 'Crossing angle', group: 'straight', type: 'number', unit: '°', min: 0, max: 180, step: 0.5, simple: false, visible: (r) => straightOn(r) && r.straight.crossings > 1, help: '0 = evenly spaced (180° / crossings).' },
 
   // Eccentric chuck
-  { key: 'eccentric.enabled', label: 'Eccentric chuck', group: 'eccentric', type: 'bool', simple: false },
-  { key: 'eccentric.offset', label: 'Offset', group: 'eccentric', type: 'number', unit: 'mm', min: 0, max: 60, step: 0.1, simple: false, visible: (r) => r.eccentric.enabled, random: [3, 25] },
-  { key: 'eccentric.angle', label: 'Offset angle', group: 'eccentric', type: 'number', unit: '°', min: 0, max: 360, step: 1, simple: false, visible: (r) => r.eccentric.enabled },
-  { key: 'eccentric.divisions', label: 'Divisions', group: 'eccentric', type: 'int', min: 1, max: 36, step: 1, simple: false, visible: (r) => r.eccentric.enabled, random: [3, 16] },
-  { key: 'eccentric.divisionStep', label: 'Division step', group: 'eccentric', type: 'number', unit: '°', min: 0, max: 180, step: 0.5, simple: false, visible: (r) => r.eccentric.enabled, help: '0 = evenly spaced (360° / divisions).' },
+  { key: 'eccentric.enabled', label: 'Eccentric chuck', group: 'eccentric', type: 'bool', simple: false, visible: rose },
+  { key: 'eccentric.offset', label: 'Offset', group: 'eccentric', type: 'number', unit: 'mm', min: 0, max: 60, step: 0.1, simple: false, visible: (r) => rose(r) && r.eccentric.enabled, random: [3, 25] },
+  { key: 'eccentric.angle', label: 'Offset angle', group: 'eccentric', type: 'number', unit: '°', min: 0, max: 360, step: 1, simple: false, visible: (r) => rose(r) && r.eccentric.enabled },
+  { key: 'eccentric.divisions', label: 'Divisions', group: 'eccentric', type: 'int', min: 1, max: 36, step: 1, simple: false, visible: (r) => rose(r) && r.eccentric.enabled, random: [3, 16] },
+  { key: 'eccentric.divisionStep', label: 'Division step', group: 'eccentric', type: 'number', unit: '°', min: 0, max: 180, step: 0.5, simple: false, visible: (r) => rose(r) && r.eccentric.enabled, help: '0 = evenly spaced (360° / divisions).' },
 
   // Elliptical chuck
-  { key: 'elliptical.enabled', label: 'Elliptical chuck', group: 'elliptical', type: 'bool', simple: false },
-  { key: 'elliptical.e', label: 'Ellipticity', group: 'elliptical', type: 'number', unit: 'mm', min: 0, max: 30, step: 0.1, simple: false, visible: (r) => r.elliptical.enabled, random: [2, 15] },
-  { key: 'elliptical.angle', label: 'Major axis angle', group: 'elliptical', type: 'number', unit: '°', min: 0, max: 180, step: 1, simple: false, visible: (r) => r.elliptical.enabled },
+  { key: 'elliptical.enabled', label: 'Elliptical chuck', group: 'elliptical', type: 'bool', simple: false, visible: rose },
+  { key: 'elliptical.e', label: 'Ellipticity', group: 'elliptical', type: 'number', unit: 'mm', min: 0, max: 30, step: 0.1, simple: false, visible: (r) => rose(r) && r.elliptical.enabled, random: [2, 15] },
+  { key: 'elliptical.angle', label: 'Major axis angle', group: 'elliptical', type: 'number', unit: '°', min: 0, max: 180, step: 1, simple: false, visible: (r) => rose(r) && r.elliptical.enabled },
 
   // Ink
   {

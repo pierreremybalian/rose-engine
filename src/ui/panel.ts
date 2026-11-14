@@ -18,6 +18,7 @@ const SECTIONS: { id: SectionId; title: string; enable?: string; off?: string }[
   { id: 'slide', title: 'Slide rest' },
   { id: 'ink', title: 'Ink & paper' },
   { id: 'metal', title: 'Metal & light' },
+  { id: 'straight', title: 'Straight-line engine', enable: 'straight.enabled', off: 'Disengaged. Cut straight lines instead of rings: pinstripes, waves, Clous de Paris.' },
   { id: 'eccentric', title: 'Eccentric chuck', enable: 'eccentric.enabled', off: 'Disengaged. Set the work off-centre and repeat the cut around a dividing wheel.' },
   { id: 'elliptical', title: 'Elliptical chuck', enable: 'elliptical.enabled', off: 'Disengaged. Draw every ring as an ellipse.' },
   { id: 'machine', title: 'Machine' },
@@ -178,7 +179,7 @@ export function createPanel(store: Store, drawerHeader: HTMLElement): { el: HTML
 
       if (document.activeElement !== nameInput) nameInput.value = r.name;
       seedLine.textContent = r.seed ? `№ ${r.seed}` : 'hand set';
-      const passes = r.slide.passes * (r.eccentric.enabled ? r.eccentric.divisions : 1);
+      const passes = r.slide.passes * (r.straight.enabled ? r.straight.crossings : r.eccentric.enabled ? r.eccentric.divisions : 1);
       meta.textContent = `${passes} pass${passes === 1 ? '' : 'es'} · Ø ${r.machine.workDiameter} mm · ${r.mode === 'ink' ? 'Ink on paper' : 'Engraved metal'}`;
       if (!prev || r !== prev.recipe) symmetry.update(r);
 

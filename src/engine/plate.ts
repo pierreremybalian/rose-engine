@@ -9,6 +9,7 @@ export function plateRadius(r: Recipe): number {
 
 /** How far a chuck can put the pattern centre from the plate centre (eccentric offset + elliptical e). */
 export function chuckReach(r: Recipe): number {
+  if (r.straight?.enabled) return 0;
   const ecc = r.eccentric?.enabled ? Math.abs(r.eccentric.offset) : 0;
   const ell = r.elliptical?.enabled ? Math.abs(r.elliptical.e) : 0;
   return ecc + ell;
@@ -37,9 +38,14 @@ export const FILL_MARGIN = 0.2;
 export function fillEndRadius(r: Recipe): number {
   const F = plateRadius(r) + chuckReach(r) + rockReach(r) + FILL_MARGIN;
   const passes = Math.max(1, Math.round(r.slide?.passes ?? 1));
-  if (!r.slide?.spiral || passes < 2) return F;
+  if (!r.slide?.spiral || r.straight?.enabled || passes < 2) return F;
   const start = Number.isFinite(r.slide.startRadius) ? r.slide.startRadius : 0;
   return Math.max(F, (F * passes - start) / (passes - 1));
+}
+
+/** Straight-line engine: half the length of every line, mm (the lines span the plate plus the rock reach). */
+export function straightHalfLength(r: Recipe): number {
+  return plateRadius(r) + rockReach(r) + FILL_MARGIN;
 }
 
 /** End radius the engine actually uses: fillEndRadius when machine.fillEdge, else slide.endRadius. */

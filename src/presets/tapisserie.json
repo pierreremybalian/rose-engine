@@ -1,0 +1,78 @@
+{
+  "version": 3,
+  "name": "Tapisserie",
+  "seed": 0,
+  "mode": "metal",
+  "machine": {
+    "rosetteRadius": 60,
+    "rubberRadius": 0,
+    "workDiameter": 100,
+    "fillEdge": true
+  },
+  "rosettes": [
+    {
+      "id": "a",
+      "enabled": false,
+      "axis": "rock",
+      "lobes": 24,
+      "amplitude": 0.5,
+      "profile": "sine",
+      "phase": 0
+    }
+  ],
+  "slide": {
+    "startRadius": 0,
+    "endRadius": 50.2,
+    "passes": 51,
+    "phaseMode": "linear",
+    "phaseStep": 0,
+    "alternateEvery": 1,
+    "alternateFraction": 0.5,
+    "phaseCustom": [
+      0
+    ],
+    "amplitudeTaper": 1,
+    "spiral": false
+  },
+  "eccentric": {
+    "enabled": false,
+    "offset": 0,
+    "angle": 0,
+    "divisions": 1,
+    "divisionStep": 0
+  },
+  "elliptical": {
+    "enabled": false,
+    "e": 0,
+    "angle": 0
+  },
+  "straight": {
+    "enabled": true,
+    "angle": 0,
+    "crossings": 2,
+    "crossAngle": 0
+  },
+  "ink": {
+    "palette": [
+      "#1d2a5c"
+    ],
+    "colorMode": "single",
+    "paper": "#f4efe4",
+    "lineWidth": 0.3,
+    "opacity": 0.9
+  },
+  "metal": {
+    "material": "blued",
+    "toolAngle": 110,
+    "baseDepth": 0.28,
+    "lightAngle": 40,
+    "lightElevation": 38,
+    "enamel": false,
+    "enamelColor": "#1b3fa0",
+    "enamelOpacity": 0.45
+  },
+  "symmetry": {
+    "order": 0,
+    "mirror": false
+  }
+}

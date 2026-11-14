@@ -9,7 +9,7 @@ const MAX_PALETTE = 8;
 const MAX_CUSTOM_PHASES = 64;
 const MAX_NAME = 80;
 
-const SECTIONS = ['machine', 'slide', 'eccentric', 'elliptical', 'ink', 'metal', 'symmetry'] as const;
+const SECTIONS = ['machine', 'slide', 'eccentric', 'elliptical', 'straight', 'ink', 'metal', 'symmetry'] as const;
 const TOP_KEYS = new Set<string>(['version', 'name', 'seed', 'mode', 'rosettes', ...SECTIONS]);
 
 const ENUMS: Record<string, readonly string[]> = {
@@ -26,7 +26,7 @@ const PARAM_BY_KEY = new Map<string, ParamDef>(PARAMS.map((p) => [p.key, p]));
 const ROSETTE_PARAM_BY_KEY = new Map<string, Pick<ParamDef, 'type' | 'min' | 'max'>>(ROSETTE_PARAMS.map((p) => [p.key, p]));
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 /** Angles wrap into range instead of clamping (-30° is 330°, not 0°). */
-const WRAP: Record<string, number> = { 'eccentric.angle': 360, 'elliptical.angle': 180, 'metal.lightAngle': 360, 'rosette.phase': 360 };
+const WRAP: Record<string, number> = { 'straight.angle': 180, 'straight.crossAngle': 180, 'eccentric.angle': 360, 'elliptical.angle': 180, 'metal.lightAngle': 360, 'rosette.phase': 360 };
 const ID = /^[A-Za-z0-9_-]{1,40}$/;
 
 type Obj = Record<string, unknown>;
@@ -46,6 +46,8 @@ export const MIGRATIONS: Record<number, (o: Obj) => Obj> = {
     if (o.symmetry === undefined) out.symmetry = { order: 0, mirror: false };
     return out;
   },
+  // v3 adds the straight-line engine. Older recipes are rose-engine recipes.
+  2: (o) => (o.straight === undefined ? { ...o, version: 3, straight: { enabled: false, angle: 0, crossings: 1, crossAngle: 0 } } : { ...o, version: 3 }),
 };
 
 export function migratePreset(o: Obj): Obj {

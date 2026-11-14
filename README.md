@@ -12,12 +12,13 @@ A guilloché lathe in the browser. Set up the rosettes (cams) and machine settin
 - **Slide rest:** start/end radius and pass count. Phasing can be linear drift, alternate (barleycorn, basket weave) or a custom list. Also amplitude taper and a continuous spiral feed. Patterns can run right into the centre.
 - **Plate & symmetry:** plate size from 20 to 300 mm with watch-dial quick picks (changing size rescales the design), Fill to edge (passes run past the rim and are clipped there), and a symmetry setting (4/6/8/12/24-fold or custom, with optional mirror) that keeps lobe counts and phasing harmonious.
 - **Chucks:** eccentric (offset and divisions, for rosaces) and elliptical (ovals).
+- **Straight-line engine:** parallel or crossed straight cuts instead of rings (pinstripes, straight waves, fish scale, Clous de Paris, tapisserie).
 - **3D machine:** a procedural Three.js model driven by the same kinematics as the drawing. The rosettes you pick are the cams you see, and the work turns under a fixed tool.
 - **Ink mode:** palettes, per-pass colour cycle or gradient, paper colour. The pumping rosettes modulate the line width.
 - **Metal mode:** Exact V-groove engraving (crisp facets, deepest cut wins) lit with PBR in silver, gold, rose gold, brass, steel or blued steel, with optional translucent enamel. The work view can be tilted to catch the light.
 - **Random / Mutate:** seeded pattern families (barleycorn, basket weave, moiré, flame, sunray, rosace, cartouche, spiral, pumped). Lock any setting to keep it through Random (fill and symmetry are locked by default).
 - **Export:** SVG (mm, one Inkscape layer per colour, plotter-ready, clipped at the plate edge), high-res PNG, G-code (pen plotter or CNC engrave), preset JSON, and share links (the recipe is compressed into the URL hash).
-- **Simple / Advanced** control views, undo/redo, and 15 built-in presets, including Grain d'Orge, Fine Barleycorn and Grain Drift.
+- **Simple / Advanced** control views, undo/redo, and 21 built-in presets, including Grain d'Orge, Clous de Paris, Tapisserie, Pinstripe, Wave, Écailles de Poisson and Circular.
 
 ![Presets](docs/images/presets.jpg)
 
