@@ -41,7 +41,7 @@ describe('share URL encoding', () => {
     expect(r!.version).toBe(RECIPE_VERSION);
     expect(r!.machine.fillEdge).toBe(false);
     expect(r!.symmetry).toEqual({ order: 0, mirror: false });
-    expect(r!.slide).toEqual(V1_PRESET.slide);
+    expect(r!.slide).toEqual({ ...V1_PRESET.slide, inward: false });
     expect(r!.rosettes).toEqual(V1_PRESET.rosettes);
     // Re-sharing writes a v2 link that decodes to the same recipe.
     expect(await decodeRecipe(await encodeRecipe(r!))).toEqual(r);

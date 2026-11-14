@@ -133,6 +133,7 @@ describe('matchPreset', () => {
       const r = presetRecipe(p.id)!;
       expect(matchPreset(r)).toEqual({ id: p.id, edited: false });
       expect(matchPreset({ ...r, mode: r.mode === 'ink' ? 'metal' : 'ink' })).toEqual({ id: p.id, edited: false });
+      expect(matchPreset({ ...r, slide: { ...r.slide, inward: !r.slide.inward } })).toEqual({ id: p.id, edited: false });
       const edited = presetRecipe(p.id)!;
       edited.slide.passes += 1;
       expect(matchPreset(edited)).toEqual({ id: p.id, edited: true });

@@ -63,6 +63,7 @@ export const PARAMS: ParamDef[] = [
   { key: 'slide.alternateFraction', label: 'Offset', group: 'slide', type: 'number', unit: 'lobe', min: 0, max: 1, step: 0.01, simple: false, visible: phaseIs('alternate'), random: [0.25, 0.75] },
   { key: 'slide.amplitudeTaper', label: 'Amplitude taper', group: 'slide', type: 'number', unit: '×', min: 0, max: 3, step: 0.01, simple: false, random: [0.3, 1.8] },
   { key: 'slide.spiral', label: 'Spiral (continuous feed)', group: 'slide', type: 'bool', simple: false, visible: rose },
+  { key: 'slide.inward', label: 'Cut inward', group: 'slide', type: 'bool', simple: true, help: 'Work from the rim to the centre (straight lines: from the far side). The pattern is the same; only the cutting order changes.' },
 
   // Straight-line engine
   { key: 'straight.enabled', label: 'Straight-line engine', group: 'straight', type: 'bool', simple: true, help: 'Cut straight lines across the plate instead of rings: pinstripes, straight waves, Clous de Paris, tapisserie.' },

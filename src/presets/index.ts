@@ -80,12 +80,12 @@ function sameValue(a: unknown, b: unknown): boolean {
 }
 
 /**
- * The built-in preset this recipe is, or was loaded from. Mode (ink / metal) and the name do not count as edits:
- * they are a view choice and a label. A recipe that differs from every preset but keeps a preset's name is that
+ * The built-in preset this recipe is, or was loaded from. Mode (ink / metal), cut direction and the name do not count
+ * as edits: they are a view choice, a cutting order and a label. A recipe that differs from every preset but keeps a preset's name is that
  * preset, edited. Random gives recipes new names, so they match nothing.
  */
 export function matchPreset(recipe: Recipe): PresetMatch | null {
-  const strip = (r: Recipe) => ({ ...r, mode: null, name: null });
+  const strip = (r: Recipe) => ({ ...r, mode: null, name: null, slide: { ...r.slide, inward: null } });
   const cur = strip(recipe);
   const exact = PRESETS.find((p) => sameValue(strip(p.recipe), cur));
   if (exact) return { id: exact.id, edited: false };

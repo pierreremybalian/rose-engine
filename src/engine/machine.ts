@@ -56,6 +56,8 @@ interface EngineData {
   startR: number;
   endR: number;
   taperEnd: number;
+  /** Cut the slide program from the end back to the start. */
+  inward: boolean;
   phaseMode: 'linear' | 'alternate' | 'custom';
   phaseStep: number;
   altEvery: number;
@@ -191,6 +193,7 @@ export function prepare(recipe: Recipe, opts: PrepareOptions = {}): EnginePrepar
     startR: straight ? (passes > 1 ? -endR : 0) : num(s.startRadius, 0),
     endR: straight ? (passes > 1 ? endR : 0) : endR,
     taperEnd: num(s.amplitudeTaper, 1),
+    inward: !!s.inward,
     phaseMode: s.phaseMode,
     phaseStep: num(s.phaseStep, 0),
     altEvery: Math.max(1, Math.round(num(s.alternateEvery, 1))),
@@ -252,7 +255,8 @@ export function rosettePhaseDeg(prepared: Prepared, rosetteIndex: number, pose: 
   if (!r) return 0;
   const rt = e.all.find((x) => x.index === rosetteIndex);
   if (!rt) return num(r.phase, 0);
-  const q = e.spiral ? (pose.spindleAngle - TAU * e.passes * pose.pass) / TAU : pose.slidePass;
+  const qs = (pose.spindleAngle - TAU * e.passes * pose.pass) / TAU;
+  const q = e.spiral ? (e.inward ? e.passes - qs : qs) : pose.slidePass;
   return num(r.phase, 0) + (programPhaseU(e, rt, q) * 360) / rt.lobes;
 }
 
@@ -294,7 +298,8 @@ function evalPose(e: EngineData, pass: number, theta: number, out: Float64Array)
   let angle: number;
   if (e.spiral) {
     division = Math.min(e.divisions - 1, Math.max(0, pass | 0));
-    q = theta / TAU;
+    // Inward: the feed runs from the end radius back to the start while the spindle keeps turning forward.
+    q = e.inward ? e.passes - theta / TAU : theta / TAU;
     slidePass = Math.min(e.passes - 1, Math.max(0, Math.floor(q)));
     const f = q / e.passes;
     radius = e.startR + (e.endR - e.startR) * f;
@@ -305,6 +310,8 @@ function evalPose(e: EngineData, pass: number, theta: number, out: Float64Array)
     const g = Math.min(total - 1, Math.max(0, pass | 0));
     division = Math.floor(g / e.passes);
     slidePass = g - division * e.passes;
+    // Inward: the same passes, cut in reverse order.
+    if (e.inward) slidePass = e.passes - 1 - slidePass;
     q = slidePass;
     const f = e.passes > 1 ? slidePass / (e.passes - 1) : 0;
     radius = e.startR + (e.endR - e.startR) * f;

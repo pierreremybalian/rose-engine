@@ -32,7 +32,8 @@
       0
     ],
     "amplitudeTaper": 1,
-    "spiral": false
+    "spiral": false,
+    "inward": false
   },
   "eccentric": {
     "enabled": false,

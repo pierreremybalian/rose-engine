@@ -131,7 +131,7 @@ describe('parsePreset', () => {
     expect(r.straight).toEqual({ enabled: false, angle: 0, crossings: 1, crossAngle: 0 });
     expect(r.machine).toEqual({ ...V1_PRESET.machine, fillEdge: false });
     expect(r.symmetry).toEqual({ order: 0, mirror: false });
-    expect(r.slide).toEqual(V1_PRESET.slide);
+    expect(r.slide).toEqual({ ...V1_PRESET.slide, inward: false });
     expect(r.rosettes).toEqual(V1_PRESET.rosettes);
     expect(r.metal).toEqual(V1_PRESET.metal);
     expect(r.ink).toEqual(V1_PRESET.ink);

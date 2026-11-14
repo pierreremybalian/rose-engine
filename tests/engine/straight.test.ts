@@ -225,3 +225,55 @@ describe('straight-line engine end to end', () => {
     }
   });
 });
+
+describe('cut inward', () => {
+  const base = (edit: (r: Recipe) => void = () => {}) => {
+    const r = defaultRecipe();
+    r.rosettes = [defaultRosette({ lobes: 9, amplitude: 1.1, profile: 'flame' })];
+    r.slide = { ...r.slide, passes: 7, startRadius: 4, endRadius: 30, phaseMode: 'linear', phaseStep: 3, amplitudeTaper: 1.6 };
+    edit(r);
+    return r;
+  };
+  const strokes = (r: Recipe) => {
+    const tp = computeToolpath(prepare(r));
+    return tp.passes.map((p) => Array.from({ length: p.count }, (_, i) => [tp.x[p.start + i], tp.y[p.start + i]]));
+  };
+
+  for (const [name, edit] of [
+    ['concentric', () => {}],
+    ['eccentric divisions', (r: Recipe) => (r.eccentric = { enabled: true, offset: 6, angle: 20, divisions: 3, divisionStep: 0 })],
+    ['straight-line crossings', (r: Recipe) => (r.straight = { enabled: true, angle: 10, crossings: 2, crossAngle: 0 })],
+  ] as const) {
+    it(`${name}: the same cuts in reverse slide order`, () => {
+      const out = strokes(base(edit));
+      const inn = strokes(base((r) => { edit(r); r.slide.inward = true; }));
+      const P = 7;
+      expect(inn).toHaveLength(out.length);
+      inn.forEach((s, g) => {
+        const d = Math.floor(g / P);
+        const k = g - d * P;
+        const ref = out[d * P + (P - 1 - k)];
+        s.forEach(([x, y], i) => {
+          expect(x).toBeCloseTo(ref[i][0], 4);
+          expect(y).toBeCloseTo(ref[i][1], 4);
+        });
+      });
+    });
+  }
+
+  it('spiral: feeds from the end radius in to the start, path continuous', () => {
+    const r = base((x) => { x.slide.spiral = true; x.slide.inward = true; x.rosettes = []; });
+    const tp = computeToolpath(prepare(r));
+    const rad = (i: number) => Math.hypot(tp.x[i], tp.y[i]);
+    expect(rad(0)).toBeCloseTo(30, 3);
+    expect(rad(tp.totalSamples - 1)).toBeCloseTo(4, 3);
+    for (let i = 1; i < tp.totalSamples; i++) expect(rad(i)).toBeLessThanOrEqual(rad(i - 1) + 1e-4);
+    // pose and samples still agree
+    const p = prepare(r);
+    for (const s of [0, 500, tp.totalSamples - 1]) {
+      const pt = toolPoint(p, poseAtSample(p, tp, s));
+      expect(pt.x).toBeCloseTo(tp.x[s], 3);
+      expect(pt.y).toBeCloseTo(tp.y[s], 3);
+    }
+  });
+});

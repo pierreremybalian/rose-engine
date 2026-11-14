@@ -56,6 +56,9 @@ export interface SlideProgram {
   amplitudeTaper: number;
   /** true = radius ramps continuously; all passes join into one open spiral path. */
   spiral: boolean;
+  /** Cut from the end radius back to the start (rim to centre) instead of start to end. Concentric and straight
+   *  passes are the same cuts in reverse order; a spiral feeds inward. */
+  inward: boolean;
 }
 
 export interface EccentricChuck {
@@ -192,6 +195,7 @@ export function defaultRecipe(): Recipe {
       phaseCustom: [0, 7.5],
       amplitudeTaper: 1,
       spiral: false,
+      inward: false,
     },
     eccentric: { enabled: false, offset: 0, angle: 0, divisions: 1, divisionStep: 0 },
     elliptical: { enabled: false, e: 0, angle: 0 },
