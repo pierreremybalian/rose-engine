@@ -41,7 +41,7 @@ export function bindKeyboard(store: Store, deps: UIDeps, hooks: KeyHooks): () =>
 
     if (key === ' ') {
       // Let focused buttons, switches and tabs handle their own Space.
-      if (t instanceof HTMLElement && t.closest('button, [role="button"], [role="switch"], [role="radio"], [role="tab"], [role="menuitem"], a, summary, select')) return;
+      if (t instanceof HTMLElement && t.closest('button, [role="button"], [role="switch"], [role="radio"], [role="tab"], [role="menuitem"], [role="menuitemradio"], a, summary, select')) return;
       e.preventDefault();
       togglePlay(store, deps);
       return;

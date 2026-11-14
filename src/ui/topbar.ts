@@ -1,6 +1,6 @@
 // Top bar (wordmark, mode, Random/Mutate, history, presets, layout, detail level, share, export)
 // plus the drawer header that carries the view controls on narrow screens.
-import type { Mode } from '../state/recipe';
+import type { Mode, Recipe } from '../state/recipe';
 import type { AppState, Layout, Store, UiMode } from '../state/store';
 import { h, roman } from './dom';
 import { editRecipe } from './edit';
@@ -89,18 +89,24 @@ function presetsMenu(deps: UIDeps, toaster: Toaster) {
       disabled: deps.presets.length === 0,
     },
     icon('presets', 'size-4'),
-    h('span', { class: 'hidden wide:inline' }, 'Presets'),
+    h('span', { class: 'hidden max-w-44 truncate wide:inline', 'data-role': 'preset-label' }, 'Presets'),
     icon('chevron', 'size-3 opacity-60'),
   );
+  const btnLabel = btn.querySelector<HTMLElement>('[data-role="preset-label"]')!;
   btn.setAttribute('aria-label', 'Presets');
-  const items = deps.presets.map((p, i) =>
-    h(
+  const marks: HTMLElement[] = [];
+  const items = deps.presets.map((p, i) => {
+    // Current preset: brass name and a dot; "edited" once any setting has changed since it was loaded.
+    const mark = h('span', { class: 'ml-auto flex-none self-center text-[10.5px] italic text-brass-400', 'aria-hidden': 'true' });
+    marks.push(mark);
+    return h(
       'button',
       {
         type: 'button',
-        role: 'menuitem',
+        role: 'menuitemradio',
+        'aria-checked': 'false',
         tabindex: '-1',
-        class: 'flex w-full items-baseline gap-3 rounded-[3px] px-3 py-2.5 text-left text-[13.5px] text-vellum-dim',
+        class: 'flex w-full items-baseline gap-3 rounded-[3px] px-3 py-2.5 text-left text-[13.5px] text-vellum-dim aria-checked:bg-brass-400/10 aria-checked:text-brass-300',
         'data-preset': p.id,
         onClick: () => {
           close(true);
@@ -109,8 +115,27 @@ function presetsMenu(deps: UIDeps, toaster: Toaster) {
       },
       h('span', { class: 'w-6 flex-none font-display text-[12px] italic text-brass-500' }, `${roman(i + 1).toLowerCase()}.`),
       h('span', { class: 'truncate' }, p.name),
-    ),
-  );
+      mark,
+    );
+  });
+
+  let lastRecipe: Recipe | null = null;
+  let current = -1;
+  /** Mark the preset the recipe is (or came from) in the menu, and name it on the button. */
+  function update(r: Recipe) {
+    if (r === lastRecipe) return;
+    lastRecipe = r;
+    const m = deps.matchPreset?.(r) ?? null;
+    current = m ? deps.presets.findIndex((p) => p.id === m.id) : -1;
+    items.forEach((it, i) => {
+      const on = i === current;
+      it.setAttribute('aria-checked', String(on));
+      marks[i].textContent = on ? (m!.edited ? 'edited' : '●') : '';
+    });
+    const name = current >= 0 ? deps.presets[current].name : '';
+    btnLabel.textContent = name ? (m!.edited ? `${name} (edited)` : name) : 'Presets';
+    btn.setAttribute('aria-label', name ? `Presets: ${name}${m!.edited ? ', edited' : ''}` : 'Presets');
+  }
   const menu = h(
     'div',
     { id: menuId, role: 'menu', 'aria-label': 'Presets', class: 're-menu re-scroll absolute left-0 top-full z-50 mt-2 max-h-[65vh] w-64 overflow-y-auto p-1.5', hidden: true },
@@ -122,7 +147,9 @@ function presetsMenu(deps: UIDeps, toaster: Toaster) {
   function open() {
     menu.hidden = false;
     btn.setAttribute('aria-expanded', 'true');
-    items[0]?.focus();
+    const sel = items[current] ?? items[0];
+    sel?.focus();
+    sel?.scrollIntoView({ block: 'nearest' });
     document.addEventListener('pointerdown', outside, true);
   }
   function close(refocus = false) {
@@ -163,7 +190,7 @@ function presetsMenu(deps: UIDeps, toaster: Toaster) {
       items[n].focus();
     }
   });
-  return { el, close, isOpen: () => !menu.hidden };
+  return { el, close, isOpen: () => !menu.hidden, update };
 }
 
 export function createTopbar(store: Store, deps: UIDeps, hooks: TopbarHooks) {
@@ -326,6 +353,7 @@ export function createTopbar(store: Store, deps: UIDeps, hooks: TopbarHooks) {
     },
     update(s: AppState) {
       vc.update(s);
+      presets.update(s.recipe);
       undo.disabled = !store.canUndo();
       redo.disabled = !store.canRedo();
       const sd = s.recipe.seed;
@@ -349,9 +377,17 @@ export function createDrawerHeader(store: Store, deps: UIDeps, hooks: TopbarHook
     h('option', { value: '' }, 'Load preset…'),
     deps.presets.map((p) => h('option', { value: p.id }, p.name)),
   );
+  let selRecipe: Recipe | null = null;
+  /** The select shows the current preset while it is unedited; otherwise its placeholder. */
+  const syncSel = (r: Recipe) => {
+    if (r === selRecipe) return;
+    selRecipe = r;
+    const m = deps.matchPreset?.(r) ?? null;
+    presetSel.value = m && !m.edited ? m.id : '';
+  };
   presetSel.addEventListener('change', () => {
     const id = presetSel.value;
-    presetSel.value = '';
+    selRecipe = null;
     if (!id) return;
     const name = deps.presets.find((p) => p.id === id)?.name ?? id;
     void attempt(hooks.toaster, () => deps.loadPreset(id), `Loaded “${name}”`);
@@ -387,5 +423,11 @@ export function createDrawerHeader(store: Store, deps: UIDeps, hooks: TopbarHook
     h('div', { class: 'flex items-center gap-2' }, presetSel, share),
   );
 
-  return { el, update: (s: AppState) => vc.update(s) };
+  return {
+    el,
+    update: (s: AppState) => {
+      vc.update(s);
+      syncSel(s.recipe);
+    },
+  };
 }

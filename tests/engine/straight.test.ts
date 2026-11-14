@@ -142,6 +142,9 @@ describe('straight-line and circular presets', () => {
     const cov = grooveCoverage(r)!;
     expect(cov).toBeGreaterThanOrEqual(1);
     expect(cov).toBeLessThan(1.05);
+    // Watch scale with a 90° graver: tall, sharp pyramids.
+    expect(r.machine.workDiameter).toBe(38);
+    expect(r.metal.toolAngle).toBe(90);
   });
 
   it('Tapisserie: square grid on the 12–6 axis with flat-topped tiles left between the grooves', () => {
@@ -165,15 +168,23 @@ describe('straight-line and circular presets', () => {
     expect(r.slide).toMatchObject({ phaseMode: 'linear', phaseStep: 0 });
   });
 
-  it('Écailles de poisson: round arches, rows offset by half a scale', () => {
+  it('Écailles de poisson: rose-engine rings of round scallops; groups of 3 passes in phase, the next group half a scale over, with a slow swirl', () => {
     const r = get('ecailles-de-poisson');
-    expect(r.straight.enabled).toBe(true);
-    expect(r.rosettes[0]).toMatchObject({ profile: 'convex', enabled: true });
-    expect(r.slide).toMatchObject({ phaseMode: 'alternate', alternateFraction: 0.5 });
-    // Each row of nested arches is as tall as the arch: alternateEvery × spacing ≈ 2A.
-    const rowHeight = r.slide.alternateEvery * passSpacing(r)!;
-    expect(rowHeight / (2 * r.rosettes[0].amplitude)).toBeGreaterThan(0.9);
-    expect(rowHeight / (2 * r.rosettes[0].amplitude)).toBeLessThan(1.1);
+    expect(r.straight.enabled).toBe(false);
+    const [scale, wave] = r.rosettes;
+    expect(scale).toMatchObject({ profile: 'convex', enabled: true, axis: 'rock' });
+    expect(wave).toMatchObject({ profile: 'sine', enabled: true, lobes: 12 });
+    expect(r.slide.phaseMode).toBe('custom');
+    expect(r.slide.phaseCustom).toHaveLength(r.slide.passes);
+    // 30° is a whole number of wave lobes and an odd number of half scales: it moves the scales half a scale
+    // and leaves the wave where it was.
+    expect(((30 * scale.lobes) / 360) % 1).toBeCloseTo(0.5, 9);
+    expect(((30 * wave.lobes) / 360) % 1).toBeCloseTo(0, 9);
+    const c = r.slide.phaseCustom;
+    expect(c[3] - c[2]).toBeCloseTo(30 + (c[1] - c[0]), 6);
+    expect(c[2] - c[1]).toBeCloseTo(c[1] - c[0], 6);
+    const cov = grooveCoverage(r)!;
+    expect(cov).toBeGreaterThanOrEqual(1);
   });
 
   it('Circular: plain concentric rings on the rose engine', () => {

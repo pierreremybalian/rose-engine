@@ -19,7 +19,7 @@ let fail = 0;
 for (const [name, want] of [['Barleycorn', false], ['Fine Barleycorn', true], ['Flame', null], ['Enamel Dial', true]]) {
   await p.getByRole('button', { name: /Presets/ }).click();
   await p.waitForTimeout(250);
-  await p.locator('[role=menuitem], [role=option]').filter({ has: p.getByText(name, { exact: true }) }).first().click();
+  await p.locator('[role=menuitem], [role=menuitemradio], [role=option]').filter({ has: p.getByText(name, { exact: true }) }).first().click();
   await p.waitForTimeout(1200);
   const s = await p.evaluate(() => { const s = window.__rose.store.get(); return { mode: s.recipe.mode, shimmer: s.shimmer, name: s.recipe.name }; });
   const ok = s.shimmer === (s.mode === 'metal') && (want === null || s.shimmer === want);

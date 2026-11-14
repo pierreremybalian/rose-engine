@@ -125,3 +125,18 @@ describe('built-in presets', () => {
     });
   }
 });
+
+describe('matchPreset', () => {
+  it('finds each preset, ignoring ink / metal and the name; an edit keeps it as "edited"; Random matches nothing', async () => {
+    const { matchPreset, presetRecipe } = await import('../../src/presets');
+    for (const p of PRESETS) {
+      const r = presetRecipe(p.id)!;
+      expect(matchPreset(r)).toEqual({ id: p.id, edited: false });
+      expect(matchPreset({ ...r, mode: r.mode === 'ink' ? 'metal' : 'ink' })).toEqual({ id: p.id, edited: false });
+      const edited = presetRecipe(p.id)!;
+      edited.slide.passes += 1;
+      expect(matchPreset(edited)).toEqual({ id: p.id, edited: true });
+      expect(matchPreset({ ...edited, name: 'Something else' })).toBeNull();
+    }
+  });
+});

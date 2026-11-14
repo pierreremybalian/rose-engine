@@ -1267,7 +1267,10 @@ export function maxPassGap(r: Recipe): number | null {
   const reach = rock.reduce((a, x) => a + Math.abs(x.amplitude), 0) * T;
   const every = Math.max(1, Math.round(sl.alternateEvery || 1));
   const custom = sl.phaseCustom?.length ? sl.phaseCustom : [0];
-  const period = sl.phaseMode === 'alternate' ? 2 * every : sl.phaseMode === 'custom' ? custom.length : 1;
+  // A custom sequence at least as long as the cut never repeats, so passes outside it are never cut: only its
+  // neighbours matter, as for a plain drift.
+  const passCount = Math.max(1, Math.round(sl.passes));
+  const period = sl.phaseMode === 'alternate' ? 2 * every : sl.phaseMode === 'custom' && custom.length < passCount ? custom.length : 1;
   // Window j = −M..M around the middle pass. Radii in (lo, hi) can't be reached by any pass outside it, and that
   // stretch is wider than the largest possible gap (s + 2·reach) plus a full period of the phase program.
   const M = Math.ceil((2 * reach) / sp) + period + 1;

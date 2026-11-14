@@ -3,6 +3,7 @@
 import type { GcodeOptions, GcodeResult, SvgOptions } from '../export/types';
 import type { PngOptions } from '../render/types';
 import type { CameraPreset, Tilt } from '../state/store';
+import type { Recipe } from '../state/recipe';
 
 export type MaybePromise<T> = T | Promise<T>;
 
@@ -29,6 +30,8 @@ export interface UIDeps {
   share(): MaybePromise<void>;
   presets: PresetEntry[];
   loadPreset(id: string): MaybePromise<void>;
+  /** The preset the current recipe is (or was loaded from and has since been edited), for marking it in the menu. */
+  matchPreset?(recipe: Recipe): { id: string; edited: boolean } | null;
   getToolpathInfo(): ToolpathInfo | null;
   exportSVG(opts: SvgOptions): MaybePromise<void>;
   exportPNG(opts: PngOptions): MaybePromise<void>;

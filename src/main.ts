@@ -8,7 +8,7 @@ import { createMachineModel } from './render/machine3d';
 import { computeToolpath, prepare } from './engine';
 import type { Prepared, Toolpath } from './engine/types';
 import { mutateRecipe, randomRecipe } from './engine/random';
-import { DEFAULT_PRESET_ID, PRESETS, presetRecipe } from './presets';
+import { DEFAULT_PRESET_ID, PRESETS, matchPreset, presetRecipe } from './presets';
 import { readRecipeFromHash, writeRecipeToHash } from './state/url';
 import { parsePreset, serializePreset } from './export/preset';
 import { buildSVG } from './export/svg';
@@ -104,6 +104,7 @@ const deps: UIDeps = {
     track('share', { method: 'link', content_type: 'pattern' });
   },
   presets: PRESETS.map(({ id, name }) => ({ id, name })),
+  matchPreset,
   loadPreset(id) {
     const r = presetRecipe(id);
     if (!r) throw new Error(`Unknown preset: ${id}`);

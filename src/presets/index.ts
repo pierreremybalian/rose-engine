@@ -62,3 +62,33 @@ export function presetRecipe(id: string): Recipe | null {
   const p = PRESETS.find((x) => x.id === id);
   return p ? structuredClone(p.recipe) : null;
 }
+
+/** Which built-in preset a recipe is: `edited` once any setting differs (it still carries the preset's name). */
+export interface PresetMatch {
+  id: string;
+  edited: boolean;
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  return ka.every((k) => sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+}
+
+/**
+ * The built-in preset this recipe is, or was loaded from. Mode (ink / metal) and the name do not count as edits:
+ * they are a view choice and a label. A recipe that differs from every preset but keeps a preset's name is that
+ * preset, edited. Random gives recipes new names, so they match nothing.
+ */
+export function matchPreset(recipe: Recipe): PresetMatch | null {
+  const strip = (r: Recipe) => ({ ...r, mode: null, name: null });
+  const cur = strip(recipe);
+  const exact = PRESETS.find((p) => sameValue(strip(p.recipe), cur));
+  if (exact) return { id: exact.id, edited: false };
+  const named = PRESETS.find((p) => p.name === recipe.name);
+  return named ? { id: named.id, edited: true } : null;
+}

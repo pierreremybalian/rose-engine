@@ -13,7 +13,7 @@ console.log('boot:', boot);
 await p.screenshot({ path: 'dev/screenshots/default-boot.png' });
 await p.getByRole('button', { name: /Presets/ }).click();
 await p.waitForTimeout(400);
-console.log('menu:', (await p.locator('[role=menuitem], [role=option]').allInnerTexts()).map((t) => t.split('\n')[0]).join(' | '));
+console.log('menu:', (await p.locator('[role=menuitem], [role=menuitemradio], [role=option]').allInnerTexts()).map((t) => t.split('\n')[0]).join(' | '));
 await p.screenshot({ path: 'dev/screenshots/default-menu.png' });
 await p.keyboard.press('Escape');
 for (const name of ["Grain d'Orge", 'Fine Barleycorn', 'Grain Drift']) {
@@ -24,7 +24,7 @@ for (const name of ["Grain d'Orge", 'Fine Barleycorn', 'Grain Drift']) {
   }, name);
   await p.getByRole('button', { name: /Presets/ }).click();
   await p.waitForTimeout(250);
-  await p.locator('[role=menuitem], [role=option]').filter({ hasText: name }).first().click();
+  await p.locator('[role=menuitem], [role=menuitemradio], [role=option]').filter({ hasText: name }).first().click();
   await p.waitForTimeout(2500);
   const r = await p.evaluate(() => { const r = window.__rose.store.get().recipe; return `${r.name} fill=${r.machine.fillEdge} start=${r.slide.startRadius} passes=${r.slide.passes}`; });
   console.log('preset:', r);

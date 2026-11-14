@@ -6,7 +6,7 @@
   "machine": {
     "rosetteRadius": 60,
     "rubberRadius": 0,
-    "workDiameter": 100,
+    "workDiameter": 38,
     "fillEdge": true
   },
   "rosettes": [
@@ -22,8 +22,8 @@
   ],
   "slide": {
     "startRadius": 0,
-    "endRadius": 50.2,
-    "passes": 68,
+    "endRadius": 19.2,
+    "passes": 52,
     "phaseMode": "linear",
     "phaseStep": 0,
     "alternateEvery": 1,
@@ -62,11 +62,11 @@
     "opacity": 0.9
   },
   "metal": {
-    "material": "silver",
-    "toolAngle": 130,
-    "baseDepth": 0.35,
+    "material": "rose",
+    "toolAngle": 90,
+    "baseDepth": 0.38,
     "lightAngle": 35,
-    "lightElevation": 40,
+    "lightElevation": 35,
     "enamel": false,
     "enamelColor": "#1b3fa0",
     "enamelOpacity": 0.45
