@@ -33,40 +33,65 @@ interface Section {
   enable?: { def: ParamDef; set(v: boolean): void; lock: ReturnType<typeof lockButton>; offNote: HTMLElement; wrap: HTMLElement };
 }
 
+/** Sections the viewer has opened. All start collapsed; the choice is remembered in this browser only. */
+const OPEN_KEY = 're-open-sections';
+function readOpen(): Set<string> {
+  try {
+    const v = JSON.parse(localStorage.getItem(OPEN_KEY) ?? '[]');
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+const openSections = readOpen();
+function rememberOpen(id: string, open: boolean): void {
+  if (open) openSections.add(id);
+  else openSections.delete(id);
+  try {
+    localStorage.setItem(OPEN_KEY, JSON.stringify([...openSections]));
+  } catch {
+    /* storage blocked: the panel still works, it just forgets */
+  }
+}
+
 function section(store: Store, spec: (typeof SECTIONS)[number]): Section {
   const bodyId = uid('sec');
   const numeral = h('span', { class: 'w-7 flex-none font-display text-[13px] italic text-brass-500' });
   const title = h('span', { class: 're-sec-title re-caps text-[11.5px] text-vellum-dim transition-colors' }, spec.title);
   const rule = h('span', { class: 're-hairline-r mx-2 flex-1', 'aria-hidden': 'true' });
-  const body = h('div', { id: bodyId, class: 'pb-3' });
-  // Plain groups collapse; chuck groups are gated by their switch instead.
-  const head = spec.enable
-    ? h('div', { class: 'flex min-w-0 items-center gap-2 pb-3 pl-5 pr-2 pt-4' }, numeral, title, rule)
-    : h(
-        'button',
-        {
-          type: 'button',
-          class: 're-sec-head flex w-full items-center gap-2 pb-3 pl-5 pr-5 pt-4 text-left',
-          'aria-expanded': 'true',
-          'aria-controls': bodyId,
-          onClick: () => {
-            const open = head.getAttribute('aria-expanded') !== 'true';
-            head.setAttribute('aria-expanded', String(open));
-            body.hidden = !open;
-          },
-        },
-        numeral,
-        title,
-        rule,
-        icon('chevron', 're-sec-chevron size-3.5 flex-none text-smoke'),
-      );
+  const startOpen = openSections.has(spec.id);
+  const body = h('div', { id: bodyId, class: 'pb-3', hidden: !startOpen });
+  // Every section collapses from its header; gated (chuck / engine) sections keep their switch beside it.
+  const setOpen = (open: boolean) => {
+    head.setAttribute('aria-expanded', String(open));
+    body.hidden = !open;
+    rememberOpen(spec.id, open);
+  };
+  const head = h(
+    'button',
+    {
+      type: 'button',
+      class: `re-sec-head flex w-full items-center gap-2 pb-3 pl-5 pt-4 text-left ${spec.enable ? 'pr-2' : 'pr-5'}`,
+      'aria-expanded': String(startOpen),
+      'aria-controls': bodyId,
+      onClick: () => setOpen(head.getAttribute('aria-expanded') !== 'true'),
+    },
+    numeral,
+    title,
+    rule,
+    icon('chevron', 're-sec-chevron size-3.5 flex-none text-smoke'),
+  );
 
   let enable: Section['enable'];
   let headRow: HTMLElement = h('h2', null, head);
   if (spec.enable) {
     const def = PARAMS.find((d) => d.key === spec.enable)!;
     const key = def.key;
-    const sw = switchButton(`Engage ${spec.title.toLowerCase()}`, (next) => editRecipe(store, (d) => setPath(d, key, next)));
+    const sw = switchButton(`Engage ${spec.title.toLowerCase()}`, (next) => {
+      editRecipe(store, (d) => setPath(d, key, next));
+      // Engaging shows its settings.
+      if (next) setOpen(true);
+    });
     sw.el.dataset.tip = HINTS[key] ?? def.help ?? '';
     const lock = lockButton(store, key, spec.title);
     const wrap = h('div', { class: 'flex flex-none items-center gap-2 pr-3 pt-1' }, sw.el, lock.el);
