@@ -38,8 +38,9 @@ const store = new Store({
 // ---------- toolpath cache ----------
 // Only these recipe parts change the geometry; mode/ink/metal edits reuse the same Toolpath object,
 // which lets RenderApp skip the stroke-mesh rebuild.
+// With extra cuts the mode counts too: metal folds each cut's depth into z, ink does not.
 const geometryKey = (r: Recipe) =>
-  JSON.stringify([r.machine, r.rosettes, r.slide, r.eccentric, r.elliptical]);
+  JSON.stringify([r.machine, r.rosettes, r.slide, r.eccentric, r.elliptical, r.straight, r.mask, r.layers, r.layers.length ? [r.mode, r.metal.baseDepth] : 0]);
 
 let builtKey = '';
 let prepared: Prepared | null = null;
@@ -56,6 +57,7 @@ function rebuild(recipe: Recipe): void {
       totalSamples: toolpath.totalSamples,
       passes: toolpath.passes.length,
       passStarts: Int32Array.from(toolpath.passes, (p) => p.start),
+      passCuts: Int32Array.from(toolpath.passes, (p) => p.cut ?? 0),
     };
     builtKey = key;
   } else {
@@ -103,7 +105,7 @@ const deps: UIDeps = {
     await navigator.clipboard.writeText(location.href);
     track('share', { method: 'link', content_type: 'pattern' });
   },
-  presets: PRESETS.map(({ id, name }) => ({ id, name })),
+  presets: PRESETS.map(({ id, name, group }) => ({ id, name, group })),
   matchPreset,
   loadPreset(id) {
     const r = presetRecipe(id);

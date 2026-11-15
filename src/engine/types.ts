@@ -15,6 +15,9 @@ export interface Pass {
   start: number;
   /** Number of samples in this stroke. For closed passes the first point is NOT repeated at the end. */
   count: number;
+  /** Layered recipes: the cut this stroke belongs to (0 = base) and its stroke index within that cut. */
+  cut?: number;
+  local?: number;
 }
 
 /**
@@ -63,6 +66,10 @@ export interface Pose {
    *  spindleAngle is then the crank / rosette angle, -2pi * travel / workDiameter (not cumulative, and not
    *  Toolpath.theta, which stays a monotonic clock); slideRadius is the signed sideways offset of the line. */
   travel?: number;
+  /** Extra rosette phase from the shape mask at this point, lobes (absent = 0). */
+  maskPhase?: number;
+  /** Which cut of a layered recipe this pose belongs to (absent = the base cut). */
+  cut?: number;
 }
 
 /** Precomputed per-recipe data (e.g. rubber follower tables). Opaque to consumers. */

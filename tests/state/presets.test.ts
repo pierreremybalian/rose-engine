@@ -63,9 +63,11 @@ describe('built-in presets', () => {
     console.log(`Fine Barleycorn: effective end ${end.toFixed(3)} mm, ${r.slide.passes} passes, spacing ${spacing.toFixed(4)} mm, 2A/spacing ${((2 * sumA) / spacing).toFixed(3)}, width ${width.toFixed(3)} mm = ${ratio.toFixed(3)} × (spacing + 2A), grooveCoverage ${grooveCoverage(r)!.toFixed(3)}`);
   });
 
-  it('has 10–24 presets with unique ids and names', () => {
-    expect(PRESETS.length).toBeGreaterThanOrEqual(10);
-    expect(PRESETS.length).toBeLessThanOrEqual(24);
+  it('has 10–24 pattern-book presets, a few experiments, and unique ids and names', () => {
+    const book = PRESETS.filter((p) => p.group === 'book');
+    expect(book.length).toBeGreaterThanOrEqual(10);
+    expect(book.length).toBeLessThanOrEqual(24);
+    expect(PRESETS.filter((p) => p.group === 'experiments').length).toBeLessThanOrEqual(12);
     expect(new Set(PRESETS.map((p) => p.id)).size).toBe(PRESETS.length);
     expect(new Set(PRESETS.map((p) => p.name)).size).toBe(PRESETS.length);
   });
@@ -94,8 +96,8 @@ describe('built-in presets', () => {
       expect(p.recipe.rosettes.length).toBeGreaterThan(0);
       // Enamel stays translucent so the engraving shows through.
       expect(p.recipe.metal.enamelOpacity).toBeLessThanOrEqual(0.55);
-      // Tapisserie is the one metal pattern whose flats are the design: raised square tiles between the grooves.
-      if (p.recipe.mode === 'metal' && p.id !== 'tapisserie') {
+      // Tapisserie's flats are the design (raised square tiles); Veiled Tapisserie cuts its second pattern into them.
+      if (p.recipe.mode === 'metal' && p.id !== 'tapisserie' && p.id !== 'veiled-tapisserie') {
         // Fully cut: the shallowest groove is 1.0–1.4 × the widest gap between neighbouring cut centrelines.
         const cov = grooveCoverage(p.recipe)!;
         expect(cov).toBeGreaterThanOrEqual(1);

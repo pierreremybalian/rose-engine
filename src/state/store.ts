@@ -33,6 +33,40 @@ export interface AppState {
   tilt: Tilt;
   /** Slow automatic rocking of the tilted plate so the light plays across the cuts. */
   shimmer: boolean;
+  /** View state: the cut the panel edits. 0 = the base cut, i + 1 = recipe.layers[i]. Not in undo history. */
+  editCut: number;
+}
+
+/** Recipe groups that belong to a cut (base cut at the top level, extra cuts under layers.<i>). */
+export const CUT_GROUPS: ReadonlySet<string> = new Set(['rosettes', 'slide', 'straight', 'eccentric', 'elliptical', 'mask']);
+
+/** Recipe path of `key` ('slide.passes', 'rosettes', ...) in cut `cut`. Keys outside CUT_GROUPS are shared by every cut. */
+export function cutPath(key: string, cut: number): string {
+  if (cut <= 0 || !CUT_GROUPS.has(key.split('.', 1)[0])) return key;
+  return `layers.${cut - 1}.${key}`;
+}
+
+/** Recipe path of a cut's depth: metal.baseDepth for the base cut, layers.<i>.depth for the others. */
+export function cutDepthPath(cut: number): string {
+  return cut <= 0 ? 'metal.baseDepth' : `layers.${cut - 1}.depth`;
+}
+
+/** A valid editCut for `r`: cuts that no longer exist fall back to the base cut. */
+export function clampEditCut(r: Recipe, cut: number): number {
+  const n = Math.round(cut);
+  return n >= 1 && n <= (r.layers?.length ?? 0) ? n : 0;
+}
+
+/**
+ * The cut to keep editing when the recipe changes from `prev` to `next`: the same layer (by id) wherever it moved,
+ * or the base cut when it is gone (deleted, or a different recipe loaded).
+ */
+export function remapEditCut(prev: Recipe, next: Recipe, cut: number): number {
+  if (cut <= 0) return 0;
+  const id = prev.layers?.[cut - 1]?.id;
+  if (id === undefined) return clampEditCut(next, cut);
+  const i = (next.layers ?? []).findIndex((l) => l.id === id);
+  return i < 0 ? 0 : i + 1;
 }
 
 type Listener = (state: AppState, prev: AppState) => void;
@@ -56,8 +90,10 @@ export class Store {
       playback: { playing: false, speed: 1, progress: 0 },
       tilt: { x: 0, y: 0 },
       shimmer: false,
+      editCut: 0,
       ...initial,
     };
+    this.state.editCut = clampEditCut(this.state.recipe, this.state.editCut);
   }
 
   get(): AppState {
@@ -67,7 +103,9 @@ export class Store {
   /** Shallow-merge a patch into state. Use setRecipe for recipe edits so they enter undo history. */
   set(patch: Partial<AppState>): void {
     const prev = this.state;
-    this.state = { ...prev, ...patch };
+    const next = { ...prev, ...patch };
+    next.editCut = patch.recipe && patch.recipe !== prev.recipe && patch.editCut === undefined ? remapEditCut(prev.recipe, next.recipe, prev.editCut) : clampEditCut(next.recipe, next.editCut);
+    this.state = next;
     this.emit(prev);
   }
 
@@ -92,7 +130,7 @@ export class Store {
       this.future = [];
     }
     this.coalescing = !!opts.coalesce;
-    this.state = { ...prev, recipe, playback: { ...prev.playback, progress: 0 } };
+    this.state = this.withRecipe(prev, recipe);
     this.emit(prev);
   }
   private coalescing = false;
@@ -114,7 +152,7 @@ export class Store {
     this.future.push(this.state.recipe);
     this.coalescing = false;
     const prev = this.state;
-    this.state = { ...prev, recipe: r, playback: { ...prev.playback, progress: 0 } };
+    this.state = this.withRecipe(prev, r);
     this.emit(prev);
   }
   redo(): void {
@@ -123,8 +161,12 @@ export class Store {
     this.past.push(this.state.recipe);
     this.coalescing = false;
     const prev = this.state;
-    this.state = { ...prev, recipe: r, playback: { ...prev.playback, progress: 0 } };
+    this.state = this.withRecipe(prev, r);
     this.emit(prev);
+  }
+
+  private withRecipe(prev: AppState, recipe: Recipe): AppState {
+    return { ...prev, recipe, editCut: remapEditCut(prev.recipe, recipe, prev.editCut), playback: { ...prev.playback, progress: 0 } };
   }
 
   subscribe(fn: Listener): () => void {

@@ -26,6 +26,7 @@ import type { Pass, Pose, Prepared, Toolpath } from './types';
 import { buildRubberTable, profileValue, sampleTable, RUBBER_TABLE_SIZE } from './rosette';
 import { makeChuckXform, toolToWork, workPlacementXf, type ChuckXform } from './chucks';
 import { effectiveEndRadius, straightHalfLength } from './plate';
+import { hasLayers, isLayered, partOfCut, partOfPass, partOfSample, prepareLayered } from './layers';
 
 const TAU = Math.PI * 2;
 
@@ -47,6 +48,23 @@ interface RosetteRT {
   table: Float64Array | null;
   /** Spiral blend window, revolutions. */
   blend: number;
+  /** Lobe count at the last pass (0 = no morph), the rosette's phase in degrees, and per-count variants. */
+  lobesEnd: number;
+  phaseDeg: number;
+  axisRock: boolean;
+  variants: Map<number, RosetteRT> | null;
+}
+
+interface MaskRT {
+  radius: number;
+  lobes: number;
+  amplitude: number;
+  profile: ProfileKind;
+  /** Radians. */
+  angle: number;
+  edge: number;
+  depth: number;
+  phase: number;
 }
 
 interface EngineData {
@@ -77,6 +95,11 @@ interface EngineData {
   refLen: number;
   /** Straight: angle of the first line set, radians. */
   lineAngle: number;
+  /** Shape mask, or null when disengaged. */
+  mask: MaskRT | null;
+  /** Rosette radius and rubber radius (rubber tables for morph variants). */
+  baseR: number;
+  rubberR: number;
 }
 
 /** Prepared recipe. `engine` is private to the engine; treat it as opaque. */
@@ -132,7 +155,16 @@ export function chooseSamplesPerRev(maxLobes: number, totalRevs: number, extraSa
   return Math.max(MIN_SAMPLES_PER_REV, spr);
 }
 
-export function prepare(recipe: Recipe, opts: PrepareOptions = {}): EnginePrepared {
+/**
+ * Prepare a recipe for the engine. A recipe with extra cuts (recipe.layers) gives a LayeredPrepared (see layers.ts);
+ * every function here accepts either.
+ */
+export function prepare(recipe: Recipe, opts: PrepareOptions = {}): Prepared {
+  return hasLayers(recipe) ? prepareLayered(recipe, opts) : prepareCut(recipe, opts);
+}
+
+/** Prepare one cut (ignores recipe.layers). */
+export function prepareCut(recipe: Recipe, opts: PrepareOptions = {}): EnginePrepared {
   const s = recipe.slide;
   const passes = Math.max(1, Math.round(num(s.passes, 1)));
   const st = recipe.straight;
@@ -157,7 +189,8 @@ export function prepare(recipe: Recipe, opts: PrepareOptions = {}): EnginePrepar
     if (!r.enabled) return;
     const lobes = Math.max(1, Math.round(num(r.lobes, 1)));
     const amplitude = num(r.amplitude, 0);
-    maxLobes = Math.max(maxLobes, lobes);
+    const lobesEnd = r.lobesEnd && r.lobesEnd >= 1 ? Math.round(num(r.lobesEnd, 0)) : 0;
+    maxLobes = Math.max(maxLobes, lobes, lobesEnd);
     const isRock = r.axis !== 'pump';
     const rt: RosetteRT = {
       index,
@@ -167,6 +200,10 @@ export function prepare(recipe: Recipe, opts: PrepareOptions = {}): EnginePrepar
       phaseU: (num(r.phase, 0) * lobes) / 360,
       table: isRock && rubber > 0 && amplitude !== 0 ? rubberTable(r.profile, lobes, amplitude, base, rubber) : null,
       blend: Math.min(0.5, 1 / lobes),
+      lobesEnd: lobesEnd !== lobes ? lobesEnd : 0,
+      phaseDeg: num(r.phase, 0),
+      axisRock: isRock,
+      variants: lobesEnd && lobesEnd !== lobes ? new Map() : null,
     };
     (isRock ? rock : pump).push(rt);
     all.push(rt);
@@ -209,8 +246,66 @@ export function prepare(recipe: Recipe, opts: PrepareOptions = {}): EnginePrepar
     halfLen,
     refLen,
     lineAngle: straight ? (num(st.angle, 0) * Math.PI) / 180 : 0,
+    mask: maskRT(recipe),
+    baseR: base,
+    rubberR: rubber,
   };
   return { recipe, engine };
+}
+
+function maskRT(recipe: Recipe): MaskRT | null {
+  const m = recipe.mask;
+  if (!m || !m.enabled) return null;
+  return {
+    radius: num(m.radius, 0),
+    lobes: Math.max(1, Math.round(num(m.lobes, 1))),
+    amplitude: num(m.amplitude, 0),
+    profile: m.profile,
+    angle: (num(m.angle, 0) * Math.PI) / 180,
+    edge: Math.max(1e-3, num(m.edge, 0.5)),
+    depth: num(m.depth, 0),
+    phase: num(m.phase, 0),
+  };
+}
+
+/** Mask weight at a work-frame point: 1 inside the shape, 0 outside, smoothstep across the soft edge. */
+export function maskWeightAt(m: { radius: number; lobes: number; amplitude: number; profile: ProfileKind; angle: number; edge: number }, x: number, y: number): number {
+  const r = Math.hypot(x, y);
+  const th = Math.atan2(y, x);
+  const rm = m.radius + m.amplitude * profileValue(m.profile, (m.lobes * (th - m.angle)) / TAU);
+  let t = (rm - r) / m.edge + 0.5;
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  return t * t * (3 - 2 * t);
+}
+
+function gcd(a: number, b: number): number {
+  a = Math.abs(Math.round(a));
+  b = Math.abs(Math.round(b));
+  while (b) [a, b] = [b, a % b];
+  return a || 1;
+}
+
+/** The rosette as cut on a pass at slide fraction fs (lobe morph: round(lerp(lobes, lobesEnd, fs))). */
+function rosetteAt(e: EngineData, rt: RosetteRT, fs: number): RosetteRT {
+  if (!rt.variants) return rt;
+  // Counts step in multiples of gcd(lobes, lobesEnd), so a morph keeps the symmetry both ends share.
+  const g = gcd(rt.lobes, rt.lobesEnd);
+  const L = Math.max(1, g * Math.round((rt.lobes + (rt.lobesEnd - rt.lobes) * fs) / g));
+  if (L === rt.lobes) return rt;
+  let v = rt.variants.get(L);
+  if (!v) {
+    v = {
+      ...rt,
+      lobes: L,
+      phaseU: (rt.phaseDeg * L) / 360,
+      table: rt.axisRock && e.rubberR > 0 && rt.amplitude !== 0 ? rubberTable(rt.profile, L, rt.amplitude, e.baseR, e.rubberR) : null,
+      blend: Math.min(0.5, 1 / L),
+      variants: null,
+    };
+    rt.variants.set(L, v);
+  }
+  return v;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -250,6 +345,7 @@ function programPhaseU(e: EngineData, rt: RosetteRT, q: number): number {
 
 /** Total phase in degrees of rosette `rosetteIndex` (recipe order) at a pose: rosette.phase + program offset. */
 export function rosettePhaseDeg(prepared: Prepared, rosetteIndex: number, pose: Pose): number {
+  if (isLayered(prepared)) return rosettePhaseDeg(partOfCut(prepared, pose.cut).prepared, rosetteIndex, pose);
   const e = getEngine(prepared);
   const r = prepared.recipe.rosettes[rosetteIndex];
   if (!r) return 0;
@@ -257,7 +353,8 @@ export function rosettePhaseDeg(prepared: Prepared, rosetteIndex: number, pose: 
   if (!rt) return num(r.phase, 0);
   const qs = (pose.spindleAngle - TAU * e.passes * pose.pass) / TAU;
   const q = e.spiral ? (e.inward ? e.passes - qs : qs) : pose.slidePass;
-  return num(r.phase, 0) + (programPhaseU(e, rt, q) * 360) / rt.lobes;
+  const v = rosetteAt(e, rt, e.passes > 1 ? pose.slidePass / (e.passes - 1) : 0);
+  return num(r.phase, 0) + ((programPhaseU(e, v, q) + (pose.maskPhase ?? 0)) * 360) / v.lobes;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -273,15 +370,17 @@ const P_PUMP = 4;
 const P_RADIUS = 5;
 const P_DIVANGLE = 6;
 const P_TRAVEL = 7;
-const POSE_SLOTS = 8;
+const P_MASKU = 8;
+const POSE_SLOTS = 9;
+const MASK_PT = new Float64Array(2);
 
 /** Sum of a rosette list. Rose engine: x = spindle theta. Straight-line engine: x = travel along the line, mm. */
-function rosetteSum(e: EngineData, list: RosetteRT[], x: number, q: number, taper: number): number {
+function rosetteSum(e: EngineData, list: RosetteRT[], x: number, q: number, taper: number, fs: number, extraU: number): number {
   let sum = 0;
   for (let i = 0; i < list.length; i++) {
-    const rt = list[i];
+    const rt = rosetteAt(e, list[i], fs);
     const pos = e.straight ? (rt.lobes * x) / e.refLen : (-rt.lobes * x) / TAU;
-    const u = pos + rt.phaseU + programPhaseU(e, rt, q);
+    const u = pos + rt.phaseU + programPhaseU(e, rt, q) + extraU;
     const v = rt.table ? sampleTable(rt.table, u) : rt.amplitude * profileValue(rt.profile, u);
     sum += v;
   }
@@ -320,11 +419,23 @@ function evalPose(e: EngineData, pass: number, theta: number, out: Float64Array)
   }
   // Straight-line engine: theta is the clock along the line; the crank turns the rosettes with the travel.
   const x = e.straight ? -e.halfLen + (2 * e.halfLen * theta) / TAU : theta;
+  // Lobe morph steps per pass (spiral: per turn), so every ring closes.
+  const fs = e.passes > 1 ? slidePass / (e.passes - 1) : 0;
+  // Mask: weight at the nominal point (slide position, no rock), so it never feeds back into the line it shapes.
+  let mw = 0;
+  if (e.mask) {
+    const da = division * e.xf.divStep;
+    if (e.straight) linePoint(e, x, radius, da, MASK_PT);
+    else toolToWork(e.xf, radius, Math.cos(angle), Math.sin(angle), Math.cos(da), Math.sin(da), MASK_PT);
+    mw = maskWeightAt(e.mask, MASK_PT[0], MASK_PT[1]);
+  }
+  const extraU = e.mask ? mw * e.mask.phase : 0;
   out[P_DIV] = division;
   out[P_SLIDE] = slidePass;
   out[P_ANGLE] = e.straight ? (-TAU * x) / e.refLen : angle;
-  out[P_ROCK] = e.rock.length ? rosetteSum(e, e.rock, x, q, taper) : 0;
-  out[P_PUMP] = e.pump.length ? rosetteSum(e, e.pump, x, q, taper) : 0;
+  out[P_ROCK] = e.rock.length ? rosetteSum(e, e.rock, x, q, taper, fs, extraU) : 0;
+  out[P_PUMP] = (e.pump.length ? rosetteSum(e, e.pump, x, q, taper, fs, extraU) : 0) + (e.mask ? mw * e.mask.depth : 0);
+  out[P_MASKU] = extraU;
   out[P_RADIUS] = radius;
   out[P_DIVANGLE] = division * e.xf.divStep;
   out[P_TRAVEL] = e.straight ? x : 0;
@@ -345,6 +456,7 @@ function linePoint(e: EngineData, t: number, rho: number, divAngle: number, out:
 
 /** Number of strokes (Pass entries) the toolpath will have. */
 export function strokeCount(prepared: Prepared): number {
+  if (isLayered(prepared)) return prepared.toolpath.passes.length;
   const e = getEngine(prepared);
   return e.spiral ? e.divisions : e.passes * e.divisions;
 }
@@ -355,6 +467,10 @@ export function strokeCount(prepared: Prepared): number {
  * cumulative across the toolpath (it matches Toolpath.theta).
  */
 export function poseAt(prepared: Prepared, pass: number, theta: number): Pose {
+  if (isLayered(prepared)) {
+    const part = partOfPass(prepared, pass);
+    return { ...poseAt(part.prepared, pass - part.passOffset, theta), cut: part.cut };
+  }
   const e = getEngine(prepared);
   const out = new Float64Array(POSE_SLOTS);
   evalPose(e, pass, theta, out);
@@ -369,11 +485,17 @@ export function poseAt(prepared: Prepared, pass: number, theta: number): Pose {
     divisionAngle: out[P_DIVANGLE],
   };
   if (e.straight) pose.travel = out[P_TRAVEL];
+  if (out[P_MASKU] !== 0) pose.maskPhase = out[P_MASKU];
   return pose;
 }
 
 /** Work-frame tool point for a pose: x, y in mm (+Y up), z = pump displacement in mm. */
 export function toolPoint(prepared: Prepared, pose: Pose): { x: number; y: number; z: number } {
+  if (isLayered(prepared)) {
+    const part = partOfCut(prepared, pose.cut);
+    const pt = toolPoint(part.prepared, pose);
+    return { ...pt, z: pt.z + part.zOffset };
+  }
   const e = getEngine(prepared);
   const o = [0, 0];
   if (e.straight) {
@@ -394,6 +516,7 @@ export function toolPoint(prepared: Prepared, pose: Pose): { x: number; y: numbe
 
 /** Rigid placement of the work in the machine frame for a pose (see chucks.workPlacementXf). */
 export function workPlacement(prepared: Prepared, pose: Pose): { rotation: number; x: number; y: number } {
+  if (isLayered(prepared)) return workPlacement(partOfCut(prepared, pose.cut).prepared, pose);
   const e = getEngine(prepared);
   if (e.straight) {
     // The work slides along machine Y past the tool, lines turned to run along Y: the line normal maps to +X, so
@@ -406,6 +529,7 @@ export function workPlacement(prepared: Prepared, pose: Pose): { rotation: numbe
 }
 
 export function computeToolpath(prepared: Prepared): Toolpath {
+  if (isLayered(prepared)) return prepared.toolpath;
   const e = getEngine(prepared);
   const spr = e.samplesPerRev;
   const dTheta = TAU / spr;
@@ -537,6 +661,12 @@ export function passAtSample(toolpath: Toolpath, s: number): number {
  * Exactly consistent with the toolpath: toolPoint(poseAtSample(s)) == (x[s], y[s]) at integer s.
  */
 export function poseAtSample(prepared: Prepared, toolpath: Toolpath, sample: number): Pose {
+  if (isLayered(prepared)) {
+    const last = Math.max(0, toolpath.totalSamples - 1);
+    const s = Math.min(last, Math.max(0, Number.isFinite(sample) ? sample : 0));
+    const part = partOfSample(prepared, Math.floor(s));
+    return { ...poseAtSample(part.prepared, part.toolpath, s - part.sampleOffset), cut: part.cut };
+  }
   const last = Math.max(0, toolpath.totalSamples - 1);
   let s = Number.isFinite(sample) ? sample : 0;
   if (s < 0) s = 0;

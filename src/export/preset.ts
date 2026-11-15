@@ -1,16 +1,19 @@
 // Versioned preset JSON: save, and load untrusted input (validate, migrate, fill defaults, clamp).
-import { RECIPE_VERSION, defaultRecipe, defaultRosette, newRosetteId } from '../state/recipe';
-import type { Recipe, Rosette } from '../state/recipe';
+import { RECIPE_VERSION, defaultMask, defaultRecipe, defaultRosette, newLayerId, newRosetteId } from '../state/recipe';
+import type { Layer, Recipe, Rosette } from '../state/recipe';
 import { PARAMS, ROSETTE_PARAMS, clampParam } from '../state/params';
 import type { ParamDef } from '../state/params';
 
 const MAX_ROSETTES = 8;
+const MAX_LAYERS = 4;
 const MAX_PALETTE = 8;
 const MAX_CUSTOM_PHASES = 64;
 const MAX_NAME = 80;
 
-const SECTIONS = ['machine', 'slide', 'eccentric', 'elliptical', 'straight', 'ink', 'metal', 'symmetry'] as const;
-const TOP_KEYS = new Set<string>(['version', 'name', 'seed', 'mode', 'rosettes', ...SECTIONS]);
+const SECTIONS = ['machine', 'slide', 'eccentric', 'elliptical', 'straight', 'mask', 'ink', 'metal', 'symmetry'] as const;
+/** Sections a layer carries (validated with the same per-field rules as the base cut). */
+const LAYER_SECTIONS = ['slide', 'straight', 'eccentric', 'elliptical', 'mask'] as const;
+const TOP_KEYS = new Set<string>(['version', 'name', 'seed', 'mode', 'rosettes', 'layers', ...SECTIONS]);
 
 const ENUMS: Record<string, readonly string[]> = {
   mode: ['ink', 'metal'],
@@ -18,6 +21,7 @@ const ENUMS: Record<string, readonly string[]> = {
   'ink.colorMode': ['single', 'cycle', 'gradient'],
   'metal.material': ['silver', 'gold', 'rose', 'brass', 'steel', 'blued'],
   'rosette.profile': ['sine', 'convex', 'concave', 'flame', 'square', 'saw', 'triangle'],
+  'mask.profile': ['sine', 'convex', 'concave', 'flame', 'square', 'saw', 'triangle'],
   'rosette.axis': ['rock', 'pump'],
 };
 
@@ -26,7 +30,7 @@ const PARAM_BY_KEY = new Map<string, ParamDef>(PARAMS.map((p) => [p.key, p]));
 const ROSETTE_PARAM_BY_KEY = new Map<string, Pick<ParamDef, 'type' | 'min' | 'max'>>(ROSETTE_PARAMS.map((p) => [p.key, p]));
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 /** Angles wrap into range instead of clamping (-30° is 330°, not 0°). */
-const WRAP: Record<string, number> = { 'straight.angle': 180, 'straight.crossAngle': 180, 'eccentric.angle': 360, 'elliptical.angle': 180, 'metal.lightAngle': 360, 'rosette.phase': 360 };
+const WRAP: Record<string, number> = { 'mask.angle': 360, 'straight.angle': 180, 'straight.crossAngle': 180, 'eccentric.angle': 360, 'elliptical.angle': 180, 'metal.lightAngle': 360, 'rosette.phase': 360 };
 const ID = /^[A-Za-z0-9_-]{1,40}$/;
 
 type Obj = Record<string, unknown>;
@@ -46,6 +50,8 @@ export const MIGRATIONS: Record<number, (o: Obj) => Obj> = {
     if (o.symmetry === undefined) out.symmetry = { order: 0, mirror: false };
     return out;
   },
+  // v4 adds the shape mask and extra cuts (layers). Older recipes are one cut with no mask.
+  3: (o) => ({ ...o, version: 4, mask: o.mask === undefined ? defaultMask() : o.mask, layers: o.layers === undefined ? [] : o.layers }),
   // v3 adds the straight-line engine. Older recipes are rose-engine recipes.
   2: (o) => (o.straight === undefined ? { ...o, version: 3, straight: { enabled: false, angle: 0, crossings: 1, crossAngle: 0 } } : { ...o, version: 3 }),
 };
@@ -100,6 +106,7 @@ export function parsePresetObject(data: unknown): Recipe {
     if (!isObj(v)) throw new Error(`Preset field "${sec}" must be an object.`);
   }
   if (o.rosettes !== undefined && !Array.isArray(o.rosettes)) throw new Error('Preset field "rosettes" must be an array.');
+  if (o.layers !== undefined && !Array.isArray(o.layers)) throw new Error('Preset field "layers" must be an array.');
 
   out.version = RECIPE_VERSION;
   if (typeof o.name === 'string') out.name = o.name.trim().slice(0, MAX_NAME) || out.name;
@@ -116,7 +123,10 @@ export function parsePresetObject(data: unknown): Recipe {
     }
   }
 
-  if (Array.isArray(o.rosettes)) out.rosettes = sanitizeRosettes(o.rosettes);
+  const seen = new Set<string>();
+  if (Array.isArray(o.rosettes)) out.rosettes = sanitizeRosettes(o.rosettes, seen);
+  else out.rosettes.forEach((r) => seen.add(r.id));
+  if (Array.isArray(o.layers)) out.layers = sanitizeLayers(o.layers, out, seen);
   return out;
 }
 
@@ -155,8 +165,42 @@ function sanitizeField(path: string, v: unknown, fallback: unknown): unknown {
   return fallback;
 }
 
-function sanitizeRosettes(list: unknown[]): Rosette[] {
-  const seen = new Set<string>();
+/** Extra cuts: each validated like the base cut's sections; ids unique; rosette ids unique across all cuts. */
+function sanitizeLayers(list: unknown[], base: Recipe, seenRosettes: Set<string>): Layer[] {
+  const ids = new Set<string>();
+  const out: Layer[] = [];
+  const depthDef = PARAM_BY_KEY.get('metal.baseDepth');
+  for (const item of list) {
+    if (out.length >= MAX_LAYERS) break;
+    if (!isObj(item)) continue;
+    let id = typeof item.id === 'string' && ID.test(item.id) ? item.id : '';
+    while (!id || ids.has(id)) id = newLayerId();
+    ids.add(id);
+    const fresh = defaultRecipe();
+    const layer: Layer = {
+      id,
+      enabled: typeof item.enabled === 'boolean' ? item.enabled : true,
+      rosettes: Array.isArray(item.rosettes) ? sanitizeRosettes(item.rosettes, seenRosettes) : [],
+      slide: fresh.slide,
+      straight: fresh.straight,
+      eccentric: fresh.eccentric,
+      elliptical: fresh.elliptical,
+      depth: num(depthDef, item.depth, base.metal.baseDepth),
+      mask: fresh.mask,
+    };
+    const target = layer as unknown as Obj;
+    for (const sec of LAYER_SECTIONS) {
+      const src = item[sec];
+      if (!isObj(src)) continue;
+      const dst = target[sec] as Obj;
+      for (const key of Object.keys(dst)) if (key in src) dst[key] = sanitizeField(`${sec}.${key}`, src[key], dst[key]);
+    }
+    out.push(layer);
+  }
+  return out;
+}
+
+function sanitizeRosettes(list: unknown[], seen: Set<string> = new Set()): Rosette[] {
   const out: Rosette[] = [];
   for (const item of list) {
     if (out.length >= MAX_ROSETTES) break;
@@ -173,6 +217,10 @@ function sanitizeRosettes(list: unknown[]): Rosette[] {
       amplitude: num(ROSETTE_PARAM_BY_KEY.get('amplitude'), item.amplitude, base.amplitude),
       profile: pickEnum('rosette.profile', item.profile, base.profile),
       phase: num(ROSETTE_PARAM_BY_KEY.get('phase'), item.phase, base.phase, WRAP['rosette.phase']),
+      // Morph only when set: files without it stay as they are.
+      ...(typeof item.lobesEnd === 'number' && Number.isFinite(item.lobesEnd) && item.lobesEnd >= 1
+        ? { lobesEnd: num(ROSETTE_PARAM_BY_KEY.get('lobesEnd'), item.lobesEnd, 0) }
+        : {}),
     });
   }
   return out;

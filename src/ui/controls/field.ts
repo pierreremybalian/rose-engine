@@ -13,8 +13,9 @@ export interface FieldCtx {
   read(r: Recipe): unknown;
   /** `coalesce` while dragging; the control calls store.endCoalesce() on release. */
   write(v: unknown, opts?: { coalesce?: boolean }): void;
-  /** Key toggled in store.locks; null = no lock button. */
-  lockKey: string | null;
+  /** Key toggled in store.locks; null = no lock button. A function is resolved on every update and click
+   *  (per-cut fields); when it returns null the button is hidden but keeps its place. */
+  lockKey: string | null | (() => string | null);
   /** A parent lock (e.g. 'rosettes') that also covers this field. */
   inheritLockKey?: string;
 }
@@ -73,7 +74,8 @@ export interface LockButton {
   update(s: AppState): void;
 }
 
-export function lockButton(store: Store, key: string, label: string, inheritKey?: string): LockButton {
+export function lockButton(store: Store, lockKey: string | (() => string | null), label: string, inheritKey?: string): LockButton {
+  const keyOf = (): string | null => (typeof lockKey === 'function' ? lockKey() : lockKey);
   const el = h(
     'button',
     {
@@ -81,8 +83,11 @@ export function lockButton(store: Store, key: string, label: string, inheritKey?
       class: 're-lock',
       'aria-pressed': 'false',
       'aria-label': `Lock ${label}`,
-      'data-lock': key,
-      onClick: () => store.set({ locks: toggled(store.get().locks, key) }),
+      'data-lock': keyOf() ?? '',
+      onClick: () => {
+        const key = keyOf();
+        if (key) store.set({ locks: toggled(store.get().locks, key) });
+      },
     },
     icon('lockOpen', 're-lock__open'),
     icon('lockShut', 're-lock__shut'),
@@ -91,11 +96,16 @@ export function lockButton(store: Store, key: string, label: string, inheritKey?
   return {
     el,
     update(s) {
-      const pressed = s.locks.includes(key);
-      const inherited = !pressed && !!inheritKey && s.locks.includes(inheritKey);
-      const sig = `${pressed}|${inherited}`;
+      const key = keyOf();
+      const pressed = !!key && s.locks.includes(key);
+      const inherited = !!key && !pressed && !!inheritKey && s.locks.includes(inheritKey);
+      const sig = `${key}|${pressed}|${inherited}`;
       if (sig === last) return;
       last = sig;
+      // Extra cuts are never touched by Random / Mutate: nothing to lock.
+      el.classList.toggle('invisible', !key);
+      el.disabled = !key;
+      el.dataset.lock = key ?? '';
       el.setAttribute('aria-pressed', String(pressed));
       el.dataset.inherited = String(inherited);
       el.dataset.tip = pressed

@@ -140,7 +140,16 @@ function presetsMenu(deps: UIDeps, toaster: Toaster) {
     'div',
     { id: menuId, role: 'menu', 'aria-label': 'Presets', class: 're-menu re-scroll absolute left-0 top-full z-50 mt-2 max-h-[65vh] w-64 overflow-y-auto p-1.5', hidden: true },
     h('p', { class: 're-caps px-3 pb-1.5 pt-2 text-[9.5px] text-brass-500' }, 'Pattern book'),
-    items,
+    items.filter((_, i) => deps.presets[i].group !== 'experiments'),
+    deps.presets.some((p) => p.group === 'experiments')
+      ? h(
+          'div',
+          { class: 're-rule-top mt-1.5' },
+          h('p', { class: 're-caps px-3 pb-0.5 pt-3 text-[9.5px] text-brass-500' }, 'Experiments'),
+          h('p', { class: 'px-3 pb-1.5 text-[11px] leading-snug text-smoke' }, 'New techniques: layered cuts, masks, morphing lobes.'),
+        )
+      : null,
+    items.filter((_, i) => deps.presets[i].group === 'experiments'),
   );
   const el = h('div', { class: 'relative hidden desk:block' }, btn, menu);
 
@@ -375,7 +384,10 @@ export function createDrawerHeader(store: Store, deps: UIDeps, hooks: TopbarHook
     'select',
     { class: 're-select h-10 min-w-0 flex-1 pl-3 text-[13px]', 'aria-label': 'Load a preset' },
     h('option', { value: '' }, 'Load preset…'),
-    deps.presets.map((p) => h('option', { value: p.id }, p.name)),
+    deps.presets.filter((p) => p.group !== 'experiments').map((p) => h('option', { value: p.id }, p.name)),
+    deps.presets.some((p) => p.group === 'experiments')
+      ? h('optgroup', { label: 'Experiments' }, deps.presets.filter((p) => p.group === 'experiments').map((p) => h('option', { value: p.id }, p.name)))
+      : null,
   );
   let selRecipe: Recipe | null = null;
   /** The select shows the current preset while it is unedited; otherwise its placeholder. */

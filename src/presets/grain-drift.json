@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "name": "Grain Drift",
   "seed": 0,
   "mode": "metal",
@@ -53,6 +53,17 @@
     "crossings": 1,
     "crossAngle": 0
   },
+  "mask": {
+    "enabled": false,
+    "radius": 15,
+    "lobes": 5,
+    "amplitude": 6,
+    "profile": "triangle",
+    "angle": 90,
+    "edge": 0.5,
+    "depth": 0,
+    "phase": 0
+  },
   "ink": {
     "palette": [
       "#1d2a5c",
@@ -77,5 +88,6 @@
   "symmetry": {
     "order": 0,
     "mirror": false
-  }
+  },
+  "layers": []
 }

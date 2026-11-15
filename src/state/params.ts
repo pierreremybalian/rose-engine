@@ -2,7 +2,7 @@
 import type { Mode, Recipe, Rosette } from './recipe';
 import { maxUsefulRadius } from '../engine/plate';
 
-export type ParamGroup = 'plate' | 'machine' | 'slide' | 'straight' | 'eccentric' | 'elliptical' | 'ink' | 'metal';
+export type ParamGroup = 'plate' | 'machine' | 'slide' | 'straight' | 'eccentric' | 'elliptical' | 'mask' | 'ink' | 'metal';
 export type ParamType = 'number' | 'int' | 'bool' | 'select' | 'color';
 
 export interface ParamDef {
@@ -78,6 +78,28 @@ export const PARAMS: ParamDef[] = [
   { key: 'eccentric.divisions', label: 'Divisions', group: 'eccentric', type: 'int', min: 1, max: 36, step: 1, simple: false, visible: (r) => rose(r) && r.eccentric.enabled, random: [3, 16] },
   { key: 'eccentric.divisionStep', label: 'Division step', group: 'eccentric', type: 'number', unit: '°', min: 0, max: 180, step: 0.5, simple: false, visible: (r) => rose(r) && r.eccentric.enabled, help: '0 = evenly spaced (360° / divisions).' },
 
+  // Shape mask (of the cut being edited)
+  { key: 'mask.enabled', label: 'Shape mask', group: 'mask', type: 'bool', simple: false, help: 'Change the cut inside a shape: deeper or shallower, or with the facets flipped so the shape only shows as the light moves.' },
+  { key: 'mask.radius', label: 'Size', group: 'mask', type: 'number', unit: 'mm', min: 0, max: 150, step: 0.1, simple: false, visible: (r) => r.mask.enabled },
+  { key: 'mask.lobes', label: 'Points', group: 'mask', type: 'int', min: 1, max: 48, step: 1, simple: false, visible: (r) => r.mask.enabled },
+  { key: 'mask.amplitude', label: 'Point depth', group: 'mask', type: 'number', unit: 'mm', min: 0, max: 60, step: 0.1, simple: false, visible: (r) => r.mask.enabled, help: '0 = a circle.' },
+  {
+    key: 'mask.profile', label: 'Shape', group: 'mask', type: 'select', simple: false, visible: (r) => r.mask.enabled,
+    options: [
+      { value: 'triangle', label: 'Star' },
+      { value: 'convex', label: 'Flower' },
+      { value: 'concave', label: 'Spiky star' },
+      { value: 'sine', label: 'Wave' },
+      { value: 'square', label: 'Cog' },
+      { value: 'flame', label: 'Flame' },
+      { value: 'saw', label: 'Saw' },
+    ],
+  },
+  { key: 'mask.angle', label: 'Turn', group: 'mask', type: 'number', unit: '°', min: 0, max: 360, step: 1, simple: false, visible: (r) => r.mask.enabled, help: '90 = first point at 12 o’clock.' },
+  { key: 'mask.edge', label: 'Edge softness', group: 'mask', type: 'number', unit: 'mm', min: 0.01, max: 10, step: 0.01, simple: false, visible: (r) => r.mask.enabled },
+  { key: 'mask.depth', label: 'Depth inside', group: 'mask', type: 'number', unit: 'mm', min: -0.4, max: 0.4, step: 0.005, simple: false, visible: (r) => r.mask.enabled, help: 'Extra cut depth inside the shape (negative = shallower).' },
+  { key: 'mask.phase', label: 'Phase inside', group: 'mask', type: 'number', unit: 'lobe', min: -1, max: 1, step: 0.01, simple: false, visible: (r) => r.mask.enabled, help: '0.5 flips the facets: the shape shows only as the light moves.' },
+
   // Elliptical chuck
   { key: 'elliptical.enabled', label: 'Elliptical chuck', group: 'elliptical', type: 'bool', simple: false, visible: rose },
   { key: 'elliptical.e', label: 'Ellipticity', group: 'elliptical', type: 'number', unit: 'mm', min: 0, max: 30, step: 0.1, simple: false, visible: (r) => rose(r) && r.elliptical.enabled, random: [2, 15] },
@@ -144,6 +166,9 @@ export const ROSETTE_PARAMS: (Omit<ParamDef, 'group'> & { key: keyof Rosette })[
   },
   { key: 'amplitude', label: 'Amplitude', type: 'number', unit: 'mm', min: 0, max: 8, step: 0.05, simple: true, random: [0.3, 3] },
   { key: 'phase', label: 'Phase', type: 'number', unit: '°', min: 0, max: 360, step: 0.5, simple: false, random: [0, 360] },
+  { key: 'lobesEnd', label: 'Lobes at end', type: 'int', min: 0, max: 300, step: 1, simple: false, help: 'Lobe count at the last pass; 0 = same all the way. The count steps between rings, so patterns branch.',
+    dynamic: (r) => (r.symmetry.order >= 2 ? { step: r.symmetry.order, max: Math.floor(300 / r.symmetry.order) * r.symmetry.order } : {}),
+  },
 ];
 
 export const PALETTES: { name: string; colors: string[]; paper: string }[] = [

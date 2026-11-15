@@ -15,14 +15,14 @@
 //     pass counts and spacing are solved over that span and the spacing / coverage rules hold over the real cut.
 //   - Symmetry order N: lobes are multiples of N (no coprime beat partners), eccentric divisions = N evenly
 //     spaced, spirals only as N-start spirals. Mirror: symmetric profiles, peaks on 12 o'clock, no twist.
-//   enforceSymmetry() runs last as a safety net (metal coverage is re-fitted if it changed anything).
+//   enforceSymmetryAll() runs last as a safety net (metal coverage is re-fitted if it changed anything).
 import { RECIPE_VERSION, cloneRecipe, newRosetteId } from '../state/recipe';
 import type { ColorMode, MetalKind, PhaseMode, ProfileKind, Recipe, Rosette, RosetteAxis } from '../state/recipe';
 import { PALETTES, PARAMS, ROSETTE_PARAMS, clampParam, getPath, setPath } from '../state/params';
 import type { ParamDef } from '../state/params';
 import { profileValue } from './rosette';
 import { FILL_MARGIN, effectiveEndRadius, plateRadius } from './plate';
-import { enforceSymmetry } from './symmetry';
+import { enforceSymmetryAll } from './symmetry';
 
 const TAU = Math.PI * 2;
 const MAX_ROSETTES = 8;
@@ -1680,7 +1680,7 @@ export function randomRecipe(seed: number, current: Recipe, locks: string[]): Re
 
   // Safety net: snap anything the families missed. If that moved lobes or phases, the widest gap moved with
   // them: re-fit the cut so coverage stays where styleMetal put it.
-  const out = enforceSymmetry(ctx.out);
+  const out = enforceSymmetryAll(ctx.out);
   if (out !== ctx.out) fitMetalCut(out, ctx.locks, ctx.coverageK);
   return out;
 }
@@ -1872,7 +1872,7 @@ export function mutateRecipe(current: Recipe, seed: number, locks: string[], amo
   }
 
   // Safety net for symmetry, before the metal fit below measures the final geometry.
-  const res = enforceSymmetry(out);
+  const res = enforceSymmetryAll(out);
   // Metal: keep the dial fully cut. Hold the previous coverage (clamped to 1.0–1.2) against the new widest gap.
   fitMetalCut(res, ls, Math.min(1.2, Math.max(1.0, grooveCoverage(current) ?? 1.1)));
 

@@ -1,5 +1,7 @@
 // G-code export: pen plotter or CNC engraving. Strokes keep toolpath order; each closed loop starts at the
 // sample nearest the previous end and closes back to its own start. Numbers are fixed 3 decimals.
+// Layered recipes: each cut's depth is already folded into the toolpath's z (engine/layers.ts), so Z needs nothing
+// extra; the header lists the cuts and a "; cut N (depth X mm)" comment opens each cut's strokes ("cut 1" = base).
 // Paths are clipped at the plate edge: where a pass crosses the rim the pen lifts (or the cutter retracts to
 // safe Z) and travels to where it comes back onto the plate. Lengths, time and bounds are the clipped paths'.
 import type { Recipe } from '../state/recipe';
@@ -7,6 +9,7 @@ import type { Toolpath } from '../engine/types';
 import type { GcodeOptions, GcodeResult } from './types';
 import type { ClipStroke } from './clip';
 import { clippedStrokes, keptStrokeIndices, strokeBounds } from './svg';
+import { cutDepth, cutNumbers, hasLayers } from '../engine/layers';
 
 /** Rapid travel speed used for the time estimate, mm/min. */
 export const RAPID_RATE = 3000;
@@ -133,7 +136,12 @@ function strokeOrder(st: ClipStroke, kept: number[], px: number, py: number): nu
 export function buildGcode(recipe: Recipe, toolpath: Toolpath, opts: GcodeOptions): GcodeResult {
   const cnc = opts.profile === 'cnc';
   const tol = opts.tolerance;
-  const strokes = clippedStrokes(recipe, toolpath).flatMap((c) => c.strokes);
+  const clipped = clippedStrokes(recipe, toolpath);
+  const strokes = clipped.flatMap((c) => c.strokes);
+  const layered = hasLayers(recipe);
+  const strokeCuts = layered ? clipped.flatMap((c) => c.strokes.map(() => c.pass.cut ?? 0)) : [];
+  const cutLabel = (cut: number) =>
+    recipe.mode === 'metal' ? `cut ${cut + 1} (depth ${fmtG(cutDepth(recipe, cut))} mm)` : `cut ${cut + 1}`;
 
   // Output frame: 'center' keeps work coordinates, 'corner' puts the min corner of the (clipped) paths at X0 Y0.
   const sb = strokeBounds(strokes);
@@ -173,7 +181,9 @@ export function buildGcode(recipe: Recipe, toolpath: Toolpath, opts: GcodeOption
   let px = shiftX; // previous position, work coordinates
   let py = shiftY;
 
-  for (const st of strokes) {
+  let lastCut = -1;
+  for (let si = 0; si < strokes.length; si++) {
+    const st = strokes[si];
     const zs = st.z;
     const zAt = (i: number): number => {
       const zi = zs ? zs[i] : 0;
@@ -184,6 +194,10 @@ export function buildGcode(recipe: Recipe, toolpath: Toolpath, opts: GcodeOption
     const order = strokeOrder(st, kept, px, py);
     if (order.length === 0) continue;
     strokeCount += 1;
+    if (layered && strokeCuts[si] !== lastCut) {
+      lastCut = strokeCuts[si];
+      body.push(`; ${cutLabel(lastCut)}`);
+    }
 
     const i0 = order[0];
     const x0 = st.x[i0];
@@ -281,6 +295,7 @@ export function buildGcode(recipe: Recipe, toolpath: Toolpath, opts: GcodeOption
       `; mode: ${recipe.mode}, profile: ${opts.profile}, origin: ${opts.origin}`,
       `; strokes: ${strokeCount}, tolerance: ${fmtG(tol)} mm, feed: ${fmtRate(opts.feedRate)} mm/min`,
     ];
+    if (layered) c.push(`; cuts: ${cutNumbers(recipe).map(cutLabel).join(', ')}`);
     if (cnc) {
       c.push(
         `; depth: -${fmtG(depthScale)} x (${fmtG(baseDepth)} + pump) mm, safe Z: ${safeZ} mm, plunge: ${fmtRate(opts.plungeRate)} mm/min`,

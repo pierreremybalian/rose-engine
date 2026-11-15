@@ -23,7 +23,16 @@
 // the step is a whole half lobe; alternate needs a half-lobe offset). All rosettes, the elliptical major axis
 // (mod 90) and, when off-centre, the eccentric direction (mod 180) must share one axis. Divisions never break it:
 // D copies of a mirror-symmetric B, even or fanned, are symmetric about the middle copy's axis.
-import type { ProfileKind, Recipe, Rosette } from '../state/recipe';
+//
+// Lobe morph (Rosette.lobesEnd): pass k cuts round(lerp(lobes, lobesEnd, k / (passes - 1))) lobes (machine.ts
+// rosetteAt), so the rosette contributes every one of those counts: the gcd of them all to the order, and one
+// mirror constraint per count.
+//
+// Layered recipes (recipe.layers): every cut is analysed on its own (layerRecipe). The plate's order is the gcd of
+// the cuts' orders (the rotations they all share); it is mirror-symmetric when one axis is a mirror axis of every cut
+// (a cut of order n with axis a has the n axes a + k·180/n). enforceSymmetryAll snaps every cut.
+import type { Layer, ProfileKind, Recipe, Rosette } from '../state/recipe';
+import { cutNumbers, hasLayers, layerRecipe } from './layers';
 
 export interface SymmetryInfo {
   /** N-fold rotational symmetry of the whole pattern (1 = none). Infinity for plain concentric circles. */
@@ -89,9 +98,28 @@ export function peakAtTwelvePhase(lobes: number): number {
 // ---------------------------------------------------------------------------------------------------------
 // Rotational order
 
-/** Gcd of the active lobe counts; 0 when there are none (plain circles: any rotation). */
-function lobeGcd(rs: Rosette[]): number {
-  return rs.reduce((g, ro) => gcd(g, lobesOf(ro)), 0);
+/** Lobe count at the last pass, 0 when the rosette does not morph (as machine.ts reads it). */
+const lobesEndOf = (ro: Rosette) => {
+  const E = ro.lobesEnd && ro.lobesEnd >= 1 ? Math.round(fin(ro.lobesEnd, 0)) : 0;
+  return E !== lobesOf(ro) ? E : 0;
+};
+
+/** Every lobe count a rosette cuts across the program (one unless it morphs), as machine.ts rosetteAt does. */
+function passLobeCounts(r: Recipe, ro: Rosette): number[] {
+  const L = lobesOf(ro);
+  const E = lobesEndOf(ro);
+  const P = Math.max(1, Math.round(fin(r.slide?.passes, 1)));
+  if (!E || P <= 1) return [L];
+  const out = new Set<number>();
+  // Same rule as the engine (machine.ts rosetteAt): steps in multiples of gcd(lobes, lobesEnd).
+  const g = gcd(L, E) || 1;
+  for (let k = 0; k < P; k++) out.add(Math.max(1, g * Math.round((L + ((E - L) * k) / (P - 1)) / g)));
+  return [...out];
+}
+
+/** Gcd of the active lobe counts (every pass's, for a morph); 0 when there are none (plain circles: any rotation). */
+function lobeGcd(r: Recipe, rs: Rosette[]): number {
+  return rs.reduce((g, ro) => passLobeCounts(r, ro).reduce(gcd, g), 0);
 }
 
 /** Rotational order of one division of the pattern about the work centre (0 = continuous). */
@@ -139,7 +167,7 @@ function setOrder(set: number[]): number {
 }
 
 function rotationalOrder(r: Recipe): number {
-  const G = lobeGcd(activeRosettes(r));
+  const G = lobeGcd(r, activeRosettes(r));
   const h = baseOrder(r, G);
   if (h === 0) return Infinity; // plain concentric circles: any rotation
   const D = divisionsOf(r);
@@ -191,10 +219,11 @@ function mirrorConstraints(r: Recipe): AxisConstraint[] | null {
   const out: AxisConstraint[] = [];
   for (const ro of activeRosettes(r)) {
     if (ASYMMETRIC.has(ro.profile)) return null;
-    const L = lobesOf(ro);
-    const prog = sharedProgramResidue(r, L);
-    if (prog === null) return null;
-    out.push({ a: -fin(ro.phase, 0) - (360 * prog) / L, p: 180 / L });
+    for (const L of passLobeCounts(r, ro)) {
+      const prog = sharedProgramResidue(r, L);
+      if (prog === null) return null;
+      out.push({ a: -fin(ro.phase, 0) - (360 * prog) / L, p: 180 / L });
+    }
   }
   if (ellipseOn(r)) out.push({ a: fin(r.elliptical.angle, 0), p: 90 });
   if (offCentre(r)) out.push({ a: fin(r.eccentric.angle, 0), p: 180 });
@@ -229,12 +258,29 @@ function mirrorAxis(r: Recipe): number | null {
   return near(90) ?? near(0) ?? axes[0];
 }
 
-/** What symmetry the recipe actually has (readout; independent of recipe.symmetry). */
-export function analyzeSymmetry(r: Recipe): SymmetryInfo {
+/** Raw symmetry of one cut: its order and one mirror axis (null = none). */
+function cutSymmetry(r: Recipe): { order: number; axis: number | null } {
   // Straight-line patterns are lattices, not rosettes: no rotational order is claimed for them.
-  if (r.straight?.enabled) return { order: 1, mirror: false };
-  const order = rotationalOrder(r);
-  const axis = mirrorAxis(r);
+  if (r.straight?.enabled) return { order: 1, axis: null };
+  return { order: rotationalOrder(r), axis: mirrorAxis(r) };
+}
+
+/** Symmetry of several cuts on one plate: the rotations they share, and an axis that mirrors every one of them. */
+function combineCuts(cuts: { order: number; axis: number | null }[]): { order: number; axis: number | null } {
+  let order = Infinity;
+  for (const c of cuts) order = order === Infinity ? c.order : c.order === Infinity ? order : gcd(order, c.order);
+  if (cuts.some((c) => c.axis === null)) return { order, axis: null };
+  // A cut of order n mirrors about a + k·180/n; plain circles (Infinity) about every axis: no constraint.
+  const cs = cuts.filter((c) => Number.isFinite(c.order)).map((c) => ({ a: c.axis as number, p: 180 / c.order }));
+  const axes = commonAxes(cs);
+  if (!axes.length) return { order, axis: null };
+  const near = (x: number) => axes.find((a) => offLattice(a - x, 180) <= REL_TOL);
+  return { order, axis: near(90) ?? near(0) ?? axes[0] };
+}
+
+/** What symmetry the recipe actually has (readout; independent of recipe.symmetry). Every enabled cut counts. */
+export function analyzeSymmetry(r: Recipe): SymmetryInfo {
+  const { order, axis } = hasLayers(r) ? combineCuts(cutNumbers(r).map((c) => cutSymmetry(layerRecipe(r, c)))) : cutSymmetry(r);
   const info: SymmetryInfo = { order, mirror: axis !== null };
   if (axis !== null) {
     // With N-fold rotation and one mirror axis the pattern has N axes, 180/N apart. Report 12–6 when it is one of
@@ -293,6 +339,12 @@ function enforceOrder(d: Draft, N: number): void {
     if (!ro.enabled) continue;
     const L = Math.min(maxL, Math.max(N, Math.round(fin(ro.lobes, 1) / N) * N));
     d.num((r) => r.rosettes[i].lobes, (r, v) => (r.rosettes[i].lobes = v), L);
+    // Lobe morph: the end count too (0 / absent = off stays off).
+    const E = ro.lobesEnd && ro.lobesEnd >= 1 ? fin(ro.lobesEnd, 0) : 0;
+    if (E) {
+      const LE = Math.min(maxL, Math.max(N, Math.round(E / N) * N));
+      d.num((r) => r.rosettes[i].lobesEnd ?? 0, (r, v) => (r.rosettes[i].lobesEnd = v), LE);
+    }
   }
 
   if (eccOn(d.cur)) {
@@ -372,7 +424,7 @@ function enforceMirror(d: Draft): void {
       d.edit((r) => (r.slide.alternateFraction = v));
     }
   } else {
-    const G = lobeGcd(d.cur.rosettes.filter((ro) => ro.enabled));
+    const G = lobeGcd(d.cur, d.cur.rosettes.filter((ro) => ro.enabled));
     const unit = 180 / Math.max(1, G);
     const list = Array.isArray(s.phaseCustom) ? s.phaseCustom : [];
     const snapped = list.map((v) => {
@@ -386,7 +438,8 @@ function enforceMirror(d: Draft): void {
   for (let i = 0; i < d.cur.rosettes.length; i++) {
     const ro = d.cur.rosettes[i];
     if (!ro.enabled) continue;
-    const L = lobesOf(ro);
+    // A morph needs the peak on 12 o'clock for every count it cuts: phase ≡ 270 (mod 360 / gcd of the counts).
+    const L = lobeGcd(d.cur, [ro]);
     const v = snapAngle(fin(ro.phase, 0), peakAtTwelvePhase(L), 360 / L, 0, 360);
     d.num((r) => fin(r.rosettes[i].phase, 0), (r, x) => (r.rosettes[i].phase = x), v);
   }
@@ -401,7 +454,7 @@ function enforceMirror(d: Draft): void {
   // divisions, 12 o'clock must be one of the copies' axes (≡ 90 mod 180 / D): 90° / 270° always qualify.
   if (offCentre(d.cur)) {
     const r = d.cur;
-    const G = lobeGcd(activeRosettes(r));
+    const G = lobeGcd(r, activeRosettes(r));
     const D = divisionsOf(r);
     const even = Math.abs(divisionStepDeg(r) - 360 / D) <= 1e-9;
     const g = gcd(G, even ? D : 0) || 1;
@@ -436,4 +489,24 @@ export function enforceSymmetry(r: Recipe): Recipe {
   if (N >= 2) enforceOrder(d, N);
   if (mirror) enforceMirror(d);
   return d.out ?? r;
+}
+
+/**
+ * enforceSymmetry for every cut of the plate: the base cut, then each layer (enabled or not) as layerRecipe sees it;
+ * a layer's snapped rosettes / slide / straight / chucks are written back into recipe.layers. Returns the SAME object
+ * when nothing changes; untouched layers keep their identity.
+ */
+export function enforceSymmetryAll(r: Recipe): Recipe {
+  const base = enforceSymmetry(r);
+  const layers = base.layers ?? [];
+  let next: Layer[] | null = null;
+  for (let i = 0; i < layers.length; i++) {
+    const lr = layerRecipe(base, i + 1);
+    const e = enforceSymmetry(lr);
+    if (e === lr) continue;
+    next ??= layers.slice();
+    next[i] = { ...layers[i], rosettes: e.rosettes, slide: e.slide, straight: e.straight, eccentric: e.eccentric, elliptical: e.elliptical };
+  }
+  if (!next) return base;
+  return base === r ? { ...r, layers: next } : Object.assign(base, { layers: next });
 }

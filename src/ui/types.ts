@@ -14,11 +14,15 @@ export interface ToolpathInfo {
   passes: number;
   /** Sample index at which each pass starts, ascending (length = passes). */
   passStarts: ArrayLike<number>;
+  /** Layered recipes: the cut of each pass (0 = base), in pass order. */
+  passCuts?: ArrayLike<number>;
 }
 
 export interface PresetEntry {
   id: string;
   name: string;
+  /** 'experiments' entries are listed under their own heading after the pattern book. */
+  group?: 'book' | 'experiments';
 }
 
 export interface UIDeps {

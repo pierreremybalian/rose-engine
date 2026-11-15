@@ -40,6 +40,25 @@ function passAt(starts: ArrayLike<number>, sample: number): number {
   return lo;
 }
 
+/**
+ * Layered recipes: the cut of each pass (Pass.cut, 0 = base), in pass order. Optional on ToolpathInfo;
+ * integration fills it from toolpath.passes when the recipe has extra cuts.
+ */
+type LayeredInfo = ToolpathInfo & { passCuts?: ArrayLike<number> };
+
+/** Pass `i` (global) as "cut k, stroke j of n", or null when the toolpath has a single cut. */
+function cutOfPass(info: LayeredInfo, i: number): { cut: number; local: number; total: number } | null {
+  const cuts = info.passCuts;
+  if (!cuts || cuts.length !== info.passes || info.passes === 0) return null;
+  if (cuts[0] === cuts[cuts.length - 1]) return null;
+  const cut = cuts[i];
+  let a = i;
+  while (a > 0 && cuts[a - 1] === cut) a--;
+  let b = i;
+  while (b + 1 < cuts.length && cuts[b + 1] === cut) b++;
+  return { cut, local: i - a, total: b - a + 1 };
+}
+
 export function createTransport(store: Store, deps: UIDeps) {
   const play = h(
     'button',
@@ -102,10 +121,13 @@ export function createTransport(store: Store, deps: UIDeps) {
 
   const passNow = h('span', { class: 're-figures min-w-[2.2ch] text-right font-mono text-[14px] text-vellum' }, '0');
   const passTotal = h('span', { class: 're-figures font-mono text-[12px] text-smoke' }, '/ 0');
+  const passCut = h('span', { class: 're-caps text-[9.5px] text-brass-500', hidden: true }, 'Cut 1');
+  const passLabel = h('span', { class: 're-caps text-[9.5px] text-brass-500' }, 'Pass');
   const readout = h(
     'div',
     { class: 're-readout order-1 ml-auto flex h-9 flex-none items-center gap-2 px-3 @xl:order-4 @xl:ml-0 @min-[65rem]:order-none', 'data-readout': 'pass' },
-    h('span', { class: 're-caps text-[9.5px] text-brass-500' }, 'Pass'),
+    passCut,
+    passLabel,
     passNow,
     passTotal,
   );
@@ -214,8 +236,19 @@ export function createTransport(store: Store, deps: UIDeps) {
     scrub.style.setProperty('--fill', `${total > 0 ? Math.min(100, (p.progress / total) * 100).toFixed(3) : 0}%`);
     const passes = info?.passes ?? 0;
     const idx = info && p.progress > 0 ? Math.min(passes, passAt(info.passStarts, p.progress) + 1) : 0;
-    passNow.textContent = String(idx);
-    passTotal.textContent = `/ ${passes}`;
+    const layered = info ? cutOfPass(info as LayeredInfo, Math.max(0, idx - 1)) : null;
+    passCut.hidden = !layered;
+    // Layered: "CUT 2  49 / 60" replaces "PASS 49 / 134" so the readout keeps its width.
+    passLabel.hidden = !!layered;
+    if (layered) {
+      // Cut 0 is the base cut: shown 1-based ("Cut 1" = base, "Cut 2" = first layer).
+      passCut.textContent = `Cut ${layered.cut + 1}`;
+      passNow.textContent = String(idx > 0 ? layered.local + 1 : 0);
+      passTotal.textContent = `/ ${layered.total}`;
+    } else {
+      passNow.textContent = String(idx);
+      passTotal.textContent = `/ ${passes}`;
+    }
     camera.set(s.camera);
     frame.set(s.frame);
     cameraWrap.hidden = s.layout === 'work';

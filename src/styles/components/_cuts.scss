@@ -1,0 +1,62 @@
+@use '../tokens' as *;
+
+@layer components {
+  // Cuts list: rows on one engraved strip; the selected cut is lit like a set index on a dividing plate.
+  .re-cuts {
+    border: 1px solid var(--color-rule);
+    border-radius: 4px;
+    background: var(--color-ink-850);
+    box-shadow: var(--shadow-plate);
+  }
+
+  .re-cut {
+    position: relative;
+    transition: background-color 0.15s;
+
+    & + & {
+      border-top: 1px solid var(--color-rule);
+    }
+
+    &[data-selected='true'] {
+      background: linear-gradient(90deg, tint(--color-brass-400, 10%), transparent 85%);
+
+      &::before {
+        content: '';
+        position: absolute;
+        top: 6px;
+        bottom: 6px;
+        left: -1px;
+        width: 2px;
+        border-radius: 1px;
+        background: var(--color-brass-300);
+      }
+      .re-cut-dot {
+        background: radial-gradient(circle at 35% 30%, var(--color-brass-100), var(--color-brass-500) 70%);
+        box-shadow: 0 0 0 1px var(--color-brass-700), 0 0 6px tint(--color-brass-300, 45%);
+      }
+    }
+
+    &[data-enabled='false'] .re-cut-pick {
+      opacity: 0.45;
+    }
+  }
+
+  .re-cut-pick {
+    border-radius: 3px;
+
+    &:hover .re-cut-dot {
+      box-shadow: inset 0 0 0 1px var(--color-brass-400);
+    }
+    &:focus-visible {
+      @include focus-ring(-2px);
+    }
+  }
+
+  .re-cut-dot {
+    background: var(--color-ink-950);
+    box-shadow: inset 0 0 0 1px var(--color-rule-strong);
+    transition:
+      background-color 0.15s,
+      box-shadow 0.15s;
+  }
+}

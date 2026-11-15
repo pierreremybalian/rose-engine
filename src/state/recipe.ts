@@ -1,7 +1,7 @@
 // CONTRACT FILE — shared by every module. Change only with care; other code depends on these shapes.
 // All lengths are millimetres, all user-facing angles are degrees.
 
-export const RECIPE_VERSION = 3;
+export const RECIPE_VERSION = 4;
 
 export type ProfileKind = 'sine' | 'convex' | 'concave' | 'flame' | 'square' | 'saw' | 'triangle';
 /** 'rock' = rosette pushes the headstock sideways (radial modulation of the cut).
@@ -20,6 +20,9 @@ export interface Rosette {
   profile: ProfileKind;
   /** Rotation of this rosette relative to the spindle, degrees. */
   phase: number;
+  /** Lobe count at the last pass (0 or absent = no morph). Each pass uses lerp(lobes, lobesEnd, f) rounded to a multiple of
+   *  gcd(lobes, lobesEnd), so every ring stays closed, the count steps between rings and shared symmetry is kept. */
+  lobesEnd?: number;
 }
 
 export interface MachineSettings {
@@ -98,6 +101,49 @@ export interface StraightLine {
   crossAngle: number;
 }
 
+/**
+ * Shape mask: a polar curve r(θ) = radius + amplitude·profile(lobes·(θ − angle)/2π) on the plate (work frame, centred).
+ * Inside it (soft edge `edge` mm wide) the cut goes `depth` mm deeper and every rosette is turned `phase` lobes on.
+ * A depth mask reveals a pattern only inside the shape; a half-lobe phase flips the facets so the shape only shows
+ * when the light or the dial moves.
+ */
+export interface Mask {
+  enabled: boolean;
+  /** Mean radius of the shape, mm. */
+  radius: number;
+  /** Integer >= 1: points of the shape (a star with lobes = 5). */
+  lobes: number;
+  /** mm: how far the points stand out from the mean radius (0 = circle). */
+  amplitude: number;
+  profile: ProfileKind;
+  /** Direction of the first point, degrees (90 = 12 o'clock). */
+  angle: number;
+  /** Width of the soft edge, mm. */
+  edge: number;
+  /** Extra cut depth inside, mm (negative = shallower). */
+  depth: number;
+  /** Extra phase inside, in lobes of each rosette (0.5 = half a lobe: facets flipped). */
+  phase: number;
+}
+
+/**
+ * An extra cut on the same plate, made after the base cut (the recipe's own rosettes / slide / chucks). Plate, ink,
+ * metal finish, tool angle and symmetry are shared. Overlapping cuts resolve as real metal does: the deepest wins.
+ */
+export interface Layer {
+  /** Unique across the recipe. */
+  id: string;
+  enabled: boolean;
+  rosettes: Rosette[];
+  slide: SlideProgram;
+  straight: StraightLine;
+  eccentric: EccentricChuck;
+  elliptical: EllipticalChuck;
+  /** Nominal cut depth of this cut, mm (the base cut uses metal.baseDepth). */
+  depth: number;
+  mask: Mask;
+}
+
 /** Pattern symmetry constraint. Enforced by enforceSymmetry() (src/engine/symmetry.ts) on UI edits and Random/Mutate. */
 export interface Symmetry {
   /** 0 = free (readout only). N >= 2 = N-fold rotational symmetry: lobe counts are multiples of N; eccentric
@@ -151,9 +197,17 @@ export interface Recipe {
   eccentric: EccentricChuck;
   elliptical: EllipticalChuck;
   straight: StraightLine;
+  /** Shape mask of the base cut. */
+  mask: Mask;
   ink: InkSettings;
   metal: MetalSettings;
   symmetry: Symmetry;
+  /** Extra cuts, in cutting order after the base cut. */
+  layers: Layer[];
+}
+
+export function defaultMask(): Mask {
+  return { enabled: false, radius: 15, lobes: 5, amplitude: 6, profile: 'triangle', angle: 90, edge: 0.5, depth: 0, phase: 0 };
 }
 
 let idCounter = 0;
@@ -218,6 +272,28 @@ export function defaultRecipe(): Recipe {
       enamelOpacity: 0.6,
     },
     symmetry: { order: 0, mirror: false },
+    mask: defaultMask(),
+    layers: [],
+  };
+}
+
+export function newLayerId(): string {
+  idCounter += 1;
+  return `l${Date.now().toString(36)}${idCounter}`;
+}
+
+/** A new cut copied from the base cut of `r` (fresh ids), cut at `depth`. */
+export function layerFromBase(r: Recipe, depth: number): Layer {
+  return {
+    id: newLayerId(),
+    enabled: true,
+    rosettes: r.rosettes.map((x) => ({ ...x, id: newRosetteId() })),
+    slide: structuredClone(r.slide),
+    straight: { ...r.straight },
+    eccentric: { ...r.eccentric },
+    elliptical: { ...r.elliptical },
+    depth,
+    mask: { ...r.mask },
   };
 }
 

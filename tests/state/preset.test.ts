@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MIGRATIONS, parsePreset, serializePreset } from '../../src/export/preset';
-import { RECIPE_VERSION, defaultRecipe } from '../../src/state/recipe';
+import { defaultMask, RECIPE_VERSION, defaultRecipe } from '../../src/state/recipe';
 import { randomRecipe } from '../../src/engine/random';
 import { V1_PRESET } from './fixtures';
 
@@ -118,8 +118,8 @@ describe('parsePreset', () => {
 
   it('runs migrations up to the current version', () => {
     // A missing or old version is treated as v1 and migrated step by step.
-    expect(RECIPE_VERSION).toBe(3);
-    expect(Object.keys(MIGRATIONS).map(Number)).toEqual([1, 2]);
+    expect(RECIPE_VERSION).toBe(4);
+    expect(Object.keys(MIGRATIONS).map(Number)).toEqual([1, 2, 3]);
     const r = parsePreset(JSON.stringify({ version: 0, slide: { passes: 3 } }));
     expect(r.version).toBe(RECIPE_VERSION);
     expect(r.slide.passes).toBe(3);
@@ -151,6 +151,7 @@ describe('parsePreset', () => {
   it('the v2 → v3 step adds a disengaged straight-line engine and keeps one that is already there', () => {
     const m = MIGRATIONS[2];
     expect(m({ version: 2 })).toEqual({ version: 3, straight: { enabled: false, angle: 0, crossings: 1, crossAngle: 0 } });
+    expect(MIGRATIONS[3]({ version: 3 })).toEqual({ version: 4, mask: defaultMask(), layers: [] });
     const r = parsePreset(JSON.stringify({ version: 2, straight: { enabled: true, angle: 200, crossings: 9, crossAngle: -30 } }));
     expect(r.straight).toEqual({ enabled: true, angle: 20, crossings: 6, crossAngle: 150 });
   });

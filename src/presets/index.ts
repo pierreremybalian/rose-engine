@@ -23,6 +23,15 @@ import pinstripe from './pinstripe.json';
 import wave from './wave.json';
 import ecaillesDePoisson from './ecailles-de-poisson.json';
 import circular from './circular.json';
+import tournesol from './tournesol.json';
+import quasicrystal from './quasicrystal.json';
+import cellDivision from './cell-division.json';
+import hiddenStar from './hidden-star.json';
+import veiledTapisserie from './veiled-tapisserie.json';
+import starReveal from './star-reveal.json';
+import fresnel from './fresnel.json';
+import barleycornCentre from './barleycorn-centre.json';
+
 
 /** Menu order. The first entry is also the pattern the app opens with. */
 const SOURCES: [string, unknown][] = [
@@ -49,9 +58,27 @@ const SOURCES: [string, unknown][] = [
   ['grain-drift', grainDrift],
 ];
 
-export const PRESETS: { id: string; name: string; recipe: Recipe }[] = SOURCES.map(([id, data]) => {
+/** Experiments: techniques the maths allows that are not (as far as we know) traditional rose-engine work. Listed
+ *  after the pattern book. */
+const EXPERIMENTS: [string, unknown][] = [
+  ['barleycorn-centre', barleycornCentre],
+  ['veiled-tapisserie', veiledTapisserie],
+  ['star-reveal', starReveal],
+  ['tournesol', tournesol],
+  ['quasicrystal', quasicrystal],
+  ['cell-division', cellDivision],
+  ['hidden-star', hiddenStar],
+  ['fresnel', fresnel],
+];
+
+export type PresetGroup = 'book' | 'experiments';
+
+export const PRESETS: { id: string; name: string; recipe: Recipe; group: PresetGroup }[] = [
+  ...SOURCES.map(([id, data]) => ({ id, data, group: 'book' as const })),
+  ...EXPERIMENTS.map(([id, data]) => ({ id, data, group: 'experiments' as const })),
+].map(({ id, data, group }) => {
   const recipe = parsePresetObject(data);
-  return { id, name: recipe.name, recipe };
+  return { id, name: recipe.name, recipe, group };
 });
 
 /** The preset the app opens with on a first visit (no share link in the URL): the first in the menu. */

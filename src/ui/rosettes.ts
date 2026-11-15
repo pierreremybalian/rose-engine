@@ -1,8 +1,12 @@
 // Rosette stack editor: one card per cam with a live brass thumbnail of its profile.
+// It edits the stack of the cut selected in the Cuts section: update() is given a view state whose recipe is that cut
+// (layerRecipe), and every write resolves the cut again through `cut()` so cached cards never hold a stale target.
 import { rosetteRadiusAt } from '../engine/rosette';
 import { ROSETTE_PARAMS } from '../state/params';
 import { defaultRosette, type Recipe, type Rosette } from '../state/recipe';
 import type { AppState, Store } from '../state/store';
+import { cutPath } from '../state/store';
+import { getPath } from '../state/params';
 import { h, reconcile, roman } from './dom';
 import { editRecipe } from './edit';
 import { icon } from './icons';
@@ -109,20 +113,38 @@ function profileLabel(p: Rosette['profile']): string {
   return (opt?.label ?? p).replace(/\s*\(.*\)$/, '');
 }
 
+/** The rosette list of cut `cut` in a (draft) recipe. */
+function rosettesOf(r: Recipe, cut: number): Rosette[] {
+  return getPath(r, cutPath('rosettes', cut)) as Rosette[];
+}
+
+/** Read a rosette field for display: an absent lobesEnd means no morph (0). */
+function readField(ro: Rosette, key: string): unknown {
+  const v = (ro as unknown as Record<string, unknown>)[key];
+  return key === 'lobesEnd' ? (v ?? 0) : v;
+}
+
+/** Write a rosette field; lobesEnd 0 removes the field (no morph). */
+function writeField(ro: Rosette, key: string, v: unknown): void {
+  if (key === 'lobesEnd' && !v) delete ro.lobesEnd;
+  else (ro as unknown as Record<string, unknown>)[key] = v;
+}
+
 interface Card {
   id: string;
   el: HTMLElement;
   update(s: AppState, index: number, total: number): void;
 }
 
-function createCard(store: Store, id: string, animate: boolean): Card {
+function createCard(store: Store, id: string, animate: boolean, cut: () => number): Card {
+  const find = (d: Recipe) => rosettesOf(d, cut())?.find((x) => x.id === id);
   const canvas = h('canvas', { class: 're-thumb size-[60px] flex-none', role: 'img' });
   const title = h('h3', { class: 'font-display text-[17px] italic leading-none text-vellum' });
   const tag = h('span', { class: 're-tag px-1 py-px text-[9.5px] uppercase leading-none' });
   const summary = h('p', { class: 're-figures mt-1.5 truncate text-[12px] text-smoke' });
   const enable = switchButton('Enable rosette', (next) =>
     editRecipe(store, (d) => {
-      const r = d.rosettes.find((x) => x.id === id);
+      const r = find(d);
       if (r) r.enabled = next;
     }),
   );
@@ -132,9 +154,12 @@ function createCard(store: Store, id: string, animate: boolean): Card {
       type: 'button',
       class: 're-quiet size-8 flex-none hover:text-garnet',
       onClick: () => {
-        if (store.get().recipe.rosettes.length <= 1) return;
+        const list = rosettesOf(store.get().recipe, cut());
+        if (!list || list.length <= 1) return;
         editRecipe(store, (d) => {
-          d.rosettes = d.rosettes.filter((x) => x.id !== id);
+          const ros = rosettesOf(d, cut());
+          const i = ros.findIndex((x) => x.id === id);
+          if (i >= 0) ros.splice(i, 1);
         });
       },
     },
@@ -160,16 +185,17 @@ function createCard(store: Store, id: string, animate: boolean): Card {
       def,
       {
         store,
+        // `r` is the view recipe of the selected cut (see rosetteStack.update).
         read: (r: Recipe) => {
           const ro = r.rosettes.find((x) => x.id === id);
-          return ro ? (ro as unknown as Record<string, unknown>)[key] : undefined;
+          return ro ? readField(ro, key) : undefined;
         },
         write: (v, opts) =>
           editRecipe(store, (d) => {
-            const ro = d.rosettes.find((x) => x.id === id);
-            if (ro) (ro as unknown as Record<string, unknown>)[key] = v;
+            const ro = find(d);
+            if (ro) writeField(ro, key, v);
           }, opts),
-        lockKey: `rosettes.${id}.${key}`,
+        lockKey: () => (cut() === 0 ? `rosettes.${id}.${key}` : null),
         inheritLockKey: 'rosettes',
       },
       key,
@@ -213,14 +239,16 @@ function createCard(store: Store, id: string, animate: boolean): Card {
   };
 }
 
-export function rosetteStack(store: Store): { el: HTMLElement; update(s: AppState): void } {
-  const stackLock = lockButton(store, 'rosettes', 'the whole rosette stack');
+/** `cut()` is the cut being edited (AppState.editCut); update() must be given that cut's view state. */
+export function rosetteStack(store: Store, cut: () => number = () => store.get().editCut): { el: HTMLElement; update(s: AppState): void } {
+  const stackLock = lockButton(store, () => (cut() === 0 ? 'rosettes' : null), 'the whole rosette stack');
+  const lockLabel = h('span', { class: 'text-[11px] uppercase tracking-[0.16em] text-smoke' }, 'Lock stack');
   const count = h('p', { class: 're-figures min-w-0 flex-1 truncate text-[12px] text-smoke' });
   const top = h(
     'div',
     { class: 'flex items-center gap-2 px-5 pb-2.5' },
     count,
-    h('span', { class: 'text-[11px] uppercase tracking-[0.16em] text-smoke' }, 'Lock stack'),
+    lockLabel,
     stackLock.el,
   );
   const list = h('div', { class: 'flex flex-col gap-3 px-4' });
@@ -232,7 +260,7 @@ export function rosetteStack(store: Store): { el: HTMLElement; update(s: AppStat
       'data-action': 'add-rosette',
       onClick: () => {
         editRecipe(store, (d) => {
-          d.rosettes.push(defaultRosette());
+          rosettesOf(d, cut()).push(defaultRosette());
         });
         const last = list.lastElementChild;
         last?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -245,11 +273,17 @@ export function rosetteStack(store: Store): { el: HTMLElement; update(s: AppStat
 
   const cards = new Map<string, Card>();
   let mounted = false;
+  let lastCut = -1;
 
   return {
     el,
     update(s) {
       stackLock.update(s);
+      const c0 = cut();
+      lockLabel.hidden = c0 !== 0;
+      // Switching cut swaps in a different stack: no entrance animation for it.
+      const animate = mounted && c0 === lastCut;
+      lastCut = c0;
       const ros = s.recipe.rosettes;
       const rock = ros.filter((r) => r.axis === 'rock').length;
       const pump = ros.length - rock;
@@ -259,7 +293,7 @@ export function rosetteStack(store: Store): { el: HTMLElement; update(s: AppStat
       const ordered = ros.map((r) => {
         let c = cards.get(r.id);
         if (!c) {
-          c = createCard(store, r.id, mounted);
+          c = createCard(store, r.id, animate, cut);
           cards.set(r.id, c);
         }
         return c;

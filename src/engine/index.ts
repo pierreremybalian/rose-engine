@@ -4,5 +4,6 @@ export * from './chucks';
 export * from './simplify';
 export * from './rosette';
 export * from './plate';
+export * from './layers';
 export * from './symmetry';
 export type * from './types';

@@ -17,7 +17,7 @@ import type { IMachineModel } from '../types';
 import { defaultRecipe, type Recipe, type Rosette } from '../../state/recipe';
 import type { CameraPreset } from '../../state/store';
 import type { Pose, Prepared } from '../../engine/types';
-import { rosettePhaseDeg, toolPoint, workPlacement } from '../../engine';
+import { cutNumbers, isLayered, layerRecipe, rosettePhaseDeg, toolPoint, workPlacement } from '../../engine';
 import { maxUsefulRadius } from '../../engine/plate';
 import { createMaterials, type MachineMaterials } from './materials';
 import {
@@ -220,6 +220,10 @@ export class MachineModel implements IMachineModel {
   private rosetteCache = new Map<string, THREE.BufferGeometry>();
   private recipe: Recipe = defaultRecipe();
   private prepared: Prepared | null = null;
+  /** The recipe as given (a layered recipe keeps all its cuts here; `recipe` is the cut being shown). */
+  private fullRecipe: Recipe = this.recipe;
+  /** Layered recipes: the cut the structure is currently built for (0 = base). */
+  private cut = 0;
   private pose: Pose = {
     pass: 0,
     division: 0,
@@ -281,8 +285,27 @@ export class MachineModel implements IMachineModel {
 
   setRecipe(recipe: Recipe, prepared: Prepared): void {
     this.prepared = prepared;
-    this.applyRecipe(recipe, false);
+    this.fullRecipe = recipe;
+    if (isLayered(prepared)) {
+      // Show the machine of the cut being made; rosette indices in its poses refer to that cut's rosettes.
+      const cuts = cutNumbers(recipe);
+      this.cut = cuts.includes(this.pose.cut ?? 0) ? (this.pose.cut ?? 0) : 0;
+      this.pose = { ...this.pose, cut: this.cut };
+      this.applyRecipe(layerRecipe(recipe, this.cut), false);
+    } else {
+      this.cut = 0;
+      this.applyRecipe(recipe, false);
+    }
     this.setPose(this.pose);
+  }
+
+  /** Layered recipes: rebuild for the pose's cut when it differs from the one shown. */
+  private followCut(pose: Pose): void {
+    if (!this.prepared || !isLayered(this.prepared)) return;
+    const cut = pose.cut ?? 0;
+    if (cut === this.cut || !cutNumbers(this.fullRecipe).includes(cut)) return;
+    this.cut = cut;
+    this.applyRecipe(layerRecipe(this.fullRecipe, cut), false);
   }
 
   setWorkMaterial(material: THREE.Material): void {
@@ -290,6 +313,7 @@ export class MachineModel implements IMachineModel {
   }
 
   setPose(pose: Pose): void {
+    this.followCut(pose);
     this.pose = pose;
     const b = this.built;
     if (!b) return;

@@ -1,19 +1,25 @@
 // Left control panel: plate header, plate & symmetry, rosette stack, then param groups generated from PARAMS.
 // Every recipe edit made here goes through editRecipe (./edit), which enforces the recipe's symmetry.
+// Per-cut sections (rosettes, slide, straight, chucks, mask) edit the cut picked in the Cuts section (AppState.editCut):
+// they are shown a view recipe of that cut (layerRecipe) and write through cutPath, resolved on every write.
+import { cutNumbers, layerRecipe } from '../engine/layers';
 import { getPath, PARAMS, setPath, type ParamDef, type ParamGroup } from '../state/params';
-import type { AppState, Store } from '../state/store';
+import type { Recipe } from '../state/recipe';
+import { CUT_GROUPS, clampEditCut, cutPath, type AppState, type Store } from '../state/store';
 import { h, reconcile, roman, uid } from './dom';
 import { editRecipe } from './edit';
 import { icon } from './icons';
 import { HINTS, lockButton, numberListControl, paramControl, switchButton, type Control, type FieldCtx } from './controls';
 import { paletteControl } from './palette';
 import { autoEndRadiusControl, plateSizeControl, symmetryControl, symmetryReadout } from './plate';
+import { cutLabel, cutsSection } from './cuts';
 import { rosetteStack } from './rosettes';
 
-type SectionId = 'rosettes' | ParamGroup;
+type SectionId = 'rosettes' | 'cuts' | ParamGroup;
 
 const SECTIONS: { id: SectionId; title: string; enable?: string; off?: string }[] = [
   { id: 'plate', title: 'Plate & symmetry' },
+  { id: 'cuts', title: 'Cuts' },
   { id: 'rosettes', title: 'Rosette stack' },
   { id: 'slide', title: 'Slide rest' },
   { id: 'ink', title: 'Ink & paper' },
@@ -21,6 +27,7 @@ const SECTIONS: { id: SectionId; title: string; enable?: string; off?: string }[
   { id: 'straight', title: 'Straight-line engine', enable: 'straight.enabled', off: 'Disengaged. Cut straight lines instead of rings: pinstripes, waves, Clous de Paris.' },
   { id: 'eccentric', title: 'Eccentric chuck', enable: 'eccentric.enabled', off: 'Disengaged. Set the work off-centre and repeat the cut around a dividing wheel.' },
   { id: 'elliptical', title: 'Elliptical chuck', enable: 'elliptical.enabled', off: 'Disengaged. Draw every ring as an ellipse.' },
+  { id: 'mask', title: 'Shape mask', enable: 'mask.enabled', off: 'Off. Change the cut inside a star, flower or cog: deeper, shallower, or with the facets flipped.' },
   { id: 'machine', title: 'Machine' },
 ];
 
@@ -29,6 +36,9 @@ interface Section {
   el: HTMLElement;
   body: HTMLElement;
   numeral: HTMLElement;
+  title: HTMLElement;
+  /** "Cut 2" tag beside the title of per-cut sections while the recipe has extra cuts. */
+  cutTag: HTMLElement;
   /** Header switch for groups gated by an `*.enabled` param. */
   enable?: { def: ParamDef; set(v: boolean): void; lock: ReturnType<typeof lockButton>; offNote: HTMLElement; wrap: HTMLElement };
 }
@@ -54,10 +64,17 @@ function rememberOpen(id: string, open: boolean): void {
   }
 }
 
+/** The recipe the per-cut sections show: the selected cut as a single-cut recipe. */
+export function cutView(r: Recipe, editCut: number): Recipe {
+  const cut = clampEditCut(r, editCut);
+  return cut === 0 ? r : layerRecipe(r, cut);
+}
+
 function section(store: Store, spec: (typeof SECTIONS)[number]): Section {
   const bodyId = uid('sec');
   const numeral = h('span', { class: 'w-7 flex-none font-display text-[13px] italic text-brass-500' });
   const title = h('span', { class: 're-sec-title re-caps text-[11.5px] text-vellum-dim transition-colors' }, spec.title);
+  const cutTag = h('span', { class: 're-tag flex-none px-1 py-px text-[9.5px] uppercase leading-none', hidden: true });
   const rule = h('span', { class: 're-hairline-r mx-2 flex-1', 'aria-hidden': 'true' });
   const startOpen = openSections.has(spec.id);
   const body = h('div', { id: bodyId, class: 'pb-3', hidden: !startOpen });
@@ -78,6 +95,7 @@ function section(store: Store, spec: (typeof SECTIONS)[number]): Section {
     },
     numeral,
     title,
+    cutTag,
     rule,
     icon('chevron', 're-sec-chevron size-3.5 flex-none text-smoke'),
   );
@@ -88,19 +106,19 @@ function section(store: Store, spec: (typeof SECTIONS)[number]): Section {
     const def = PARAMS.find((d) => d.key === spec.enable)!;
     const key = def.key;
     const sw = switchButton(`Engage ${spec.title.toLowerCase()}`, (next) => {
-      editRecipe(store, (d) => setPath(d, key, next));
+      editRecipe(store, (d) => setPath(d, cutPath(key, store.get().editCut), next));
       // Engaging shows its settings.
       if (next) setOpen(true);
     });
     sw.el.dataset.tip = HINTS[key] ?? def.help ?? '';
-    const lock = lockButton(store, key, spec.title);
+    const lock = lockButton(store, () => (store.get().editCut === 0 ? key : null), spec.title);
     const wrap = h('div', { class: 'flex flex-none items-center gap-2 pr-3 pt-1' }, sw.el, lock.el);
     const offNote = h('p', { class: 'px-5 pb-1 text-[12px] leading-snug text-smoke' }, spec.off ?? '');
     headRow = h('div', { class: 'flex items-center' }, h('h2', { class: 'min-w-0 flex-1' }, head), wrap);
     enable = { def, set: sw.set, lock, offNote, wrap };
   }
   const el = h('section', { class: 're-section', 'data-group': spec.id }, headRow, body);
-  return { id: spec.id, el, body, numeral, enable };
+  return { id: spec.id, el, body, numeral, title, cutTag, enable };
 }
 
 /** Pseudo-key for the read-only "End radius: auto" line that replaces the slider while Fill to edge is on. */
@@ -120,11 +138,14 @@ export function isParamVisible(d: ParamDef, s: AppState): boolean {
 }
 
 export function createPanel(store: Store, drawerHeader: HTMLElement): { el: HTMLElement; update(s: AppState, prev?: AppState): void } {
+  // Per-cut controls are updated with the cut's view state, so `read` uses the plain key; writes and lock keys
+  // resolve the selected cut when they happen (controls are cached by key and outlive any one cut).
+  const perCut = (key: string) => CUT_GROUPS.has(key.split('.', 1)[0]);
   const ctxFor = (key: string): FieldCtx => ({
     store,
     read: (r) => getPath(r, key),
-    write: (v, opts) => editRecipe(store, (d) => setPath(d, key, v), opts),
-    lockKey: key,
+    write: (v, opts) => editRecipe(store, (d) => setPath(d, cutPath(key, store.get().editCut), v), opts),
+    lockKey: perCut(key) ? () => (store.get().editCut === 0 ? key : null) : key,
   });
 
   const controls = new Map<string, Control>();
@@ -179,8 +200,10 @@ export function createPanel(store: Store, drawerHeader: HTMLElement): { el: HTML
   );
 
   const stack = rosetteStack(store);
+  const cuts = cutsSection(store);
   const sections = SECTIONS.map((s) => section(store, s));
   sections.find((sec) => sec.id === 'rosettes')!.body.appendChild(stack.el);
+  sections.find((sec) => sec.id === 'cuts')!.body.appendChild(cuts.el);
 
   const kbd = (k: string) => h('kbd', { class: 'rounded-[3px] border border-rule-strong px-1.5 py-px font-mono text-[10.5px] text-brass-300' }, k);
   const colophon = h(
@@ -199,43 +222,60 @@ export function createPanel(store: Store, drawerHeader: HTMLElement): { el: HTML
   return {
     el,
     update(s, prev) {
-      if (prev && s.recipe === prev.recipe && s.locks === prev.locks && s.uiMode === prev.uiMode) return;
+      if (prev && s.recipe === prev.recipe && s.locks === prev.locks && s.uiMode === prev.uiMode && s.editCut === prev.editCut) return;
       const r = s.recipe;
+      const editCut = clampEditCut(r, s.editCut);
+      // What the per-cut sections see: the selected cut as a single-cut recipe.
+      const vs: AppState = editCut === 0 ? s : { ...s, recipe: cutView(r, editCut) };
+      const multi = r.layers.length > 0;
 
       if (document.activeElement !== nameInput) nameInput.value = r.name;
       seedLine.textContent = r.seed ? `№ ${r.seed}` : 'hand set';
-      const passes = r.slide.passes * (r.straight.enabled ? r.straight.crossings : r.eccentric.enabled ? r.eccentric.divisions : 1);
-      meta.textContent = `${passes} pass${passes === 1 ? '' : 'es'} · Ø ${r.machine.workDiameter} mm · ${r.mode === 'ink' ? 'Ink on paper' : 'Engraved metal'}`;
+      const cutList = cutNumbers(r);
+      const passes = cutList.reduce((a, c) => {
+        const x = c === 0 ? r : layerRecipe(r, c);
+        return a + x.slide.passes * (x.straight.enabled ? x.straight.crossings : x.eccentric.enabled ? x.eccentric.divisions : 1);
+      }, 0);
+      const cutsNote = cutList.length > 1 ? ` in ${cutList.length} cuts` : '';
+      meta.textContent = `${passes} pass${passes === 1 ? '' : 'es'}${cutsNote} · Ø ${r.machine.workDiameter} mm · ${r.mode === 'ink' ? 'Ink on paper' : 'Engraved metal'}`;
       if (!prev || r !== prev.recipe) symmetry.update(r);
 
-      stack.update(s);
+      stack.update(vs);
+      cuts.update(s);
 
       let n = 0;
       for (const sec of sections) {
-        if (sec.id !== 'rosettes') {
+        const cutSec = CUT_GROUPS.has(sec.id);
+        const tag = cutSec && multi ? cutLabel(editCut) : '';
+        sec.cutTag.hidden = !tag;
+        if (sec.cutTag.textContent !== tag) sec.cutTag.textContent = tag;
+        if (sec.id !== 'rosettes' && sec.id !== 'cuts') {
+          // Per-cut groups see the selected cut; shared groups the whole recipe.
+          const ss = cutSec ? vs : s;
+          const rr = ss.recipe;
           const keys: string[] = [];
           for (const d of PARAMS) {
             if (d.group !== sec.id || d.key === sec.enable?.def.key) continue;
-            if (!isParamVisible(d, s)) {
+            if (!isParamVisible(d, ss)) {
               // Fill to edge hides the End radius slider; say what it is instead of letting it vanish.
-              if (d.key === 'slide.endRadius' && r.machine.fillEdge && isParamVisible({ ...d, visible: undefined }, s)) keys.push(AUTO_END);
+              if (d.key === 'slide.endRadius' && rr.machine.fillEdge && isParamVisible({ ...d, visible: undefined }, ss)) keys.push(AUTO_END);
               continue;
             }
             keys.push(d.key);
-            if (d.key === 'slide.phaseMode' && r.slide.phaseMode === 'custom') keys.push('slide.phaseCustom');
+            if (d.key === 'slide.phaseMode' && rr.slide.phaseMode === 'custom') keys.push('slide.phaseCustom');
             if (d.key === 'ink.colorMode') keys.push('ink.palette');
           }
           const items: Element[] = keys.map((k) => {
             const c = control(k);
-            c.update(s);
+            c.update(ss);
             return c.el;
           });
           let show = items.length > 0;
           if (sec.enable) {
-            const on = !!getPath(r, sec.enable.def.key);
-            const gateVisible = isParamVisible(sec.enable.def, s);
+            const on = !!getPath(rr, sec.enable.def.key);
+            const gateVisible = isParamVisible(sec.enable.def, ss);
             sec.enable.set(on);
-            sec.enable.lock.update(s);
+            sec.enable.lock.update(ss);
             if (gateVisible && !on) items.push(sec.enable.offNote);
             show = gateVisible || items.length > 0;
           }

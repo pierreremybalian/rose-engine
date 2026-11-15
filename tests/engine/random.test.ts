@@ -48,6 +48,7 @@ function expectInRanges(r: Recipe): void {
     for (const def of ROSETTE_PARAMS) {
       if (def.type !== 'number' && def.type !== 'int') continue;
       const v = ros[def.key] as number;
+      if (def.key === 'lobesEnd' && v === undefined) continue; // optional: no morph
       expect(Number.isFinite(v), def.key).toBe(true);
       if (def.min !== undefined) expect(v, def.key).toBeGreaterThanOrEqual(def.min);
       if (def.max !== undefined) expect(v, def.key).toBeLessThanOrEqual(def.max);

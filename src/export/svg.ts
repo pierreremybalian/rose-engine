@@ -1,5 +1,7 @@
 // SVG export: mm units, viewBox centred on the work (1 user unit = 1 mm), +Y up flipped to SVG's +Y down,
 // one Inkscape/AxiDraw layer per ink colour (ink) or per eccentric division (metal), recipe JSON in <metadata>.
+// Layered recipes (recipe.layers): those layers are split per cut too ("Cut 1" = the base cut), and in metal each
+// cut's grooves are drawn at that cut's own width (grooveWidth of its depth).
 // Paths are clipped at the plate edge (the pen only draws on the plate): a pass that crosses the rim becomes
 // one <path> per piece inside it.
 import type { Recipe } from '../state/recipe';
@@ -9,6 +11,7 @@ import { passColor } from '../state/colors';
 import { simplifyPolyline } from '../engine/simplify';
 import { plateRadius } from '../engine/plate';
 import { clipPass, type ClipStroke } from './clip';
+import { cutDepth, hasLayers } from '../engine/layers';
 
 const NS_SVG = 'http://www.w3.org/2000/svg';
 const NS_INKSCAPE = 'http://www.inkscape.org/namespaces/inkscape';
@@ -159,15 +162,16 @@ interface Layer {
   label: string;
   id: string;
   stroke: string;
+  width: number;
   passes: Pass[];
 }
 
 export function buildSVG(recipe: Recipe, toolpath: Toolpath, opts: SvgOptions): string {
   const metal = recipe.mode === 'metal';
   const total = toolpath.passes.length;
-  const strokeWidth = metal
-    ? grooveWidth(recipe.metal.baseDepth, recipe.metal.toolAngle)
-    : recipe.ink.lineWidth;
+  const layered = hasLayers(recipe);
+  const widthOf = (cut: number) =>
+    metal ? grooveWidth(layered ? cutDepth(recipe, cut) : recipe.metal.baseDepth, recipe.metal.toolAngle) : recipe.ink.lineWidth;
 
   const clipped = clippedStrokes(recipe, toolpath);
 
@@ -180,9 +184,11 @@ export function buildSVG(recipe: Recipe, toolpath: Toolpath, opts: SvgOptions): 
   const layers: Layer[] = [];
   const byKey = new Map<string, Layer>();
   const strokesOf = new Map<Pass, ClipStroke[]>();
+  const cutOf = new Map<Layer, number>();
   for (const { pass: p, strokes } of clipped) {
     if (strokes.length === 0) continue; // entirely off the plate
     strokesOf.set(p, strokes);
+    const cut = layered ? (p.cut ?? 0) : 0;
     let key: string;
     let stroke: string;
     if (metal) {
@@ -192,19 +198,37 @@ export function buildSVG(recipe: Recipe, toolpath: Toolpath, opts: SvgOptions): 
       stroke = passColor(recipe.ink, p.index, total);
       key = stroke.toLowerCase();
     }
+    if (layered) key = `${cut}:${key}`;
     let layer = byKey.get(key);
     if (!layer) {
       const n = layers.length + 1;
-      layer = metal
-        ? { label: `${n} division ${p.division + 1}`, id: `layer-division-${n}`, stroke, passes: [] }
-        : { label: `${n} ${stroke}`, id: `layer-ink-${n}`, stroke, passes: [] };
+      const width = widthOf(cut);
+      if (layered) {
+        const c = `Cut ${cut + 1}`;
+        layer = metal
+          ? { label: `${n} ${c} division ${p.division + 1}`, id: `layer-cut-${n}`, stroke, width, passes: [] }
+          : { label: `${n} ${c} ${stroke}`, id: `layer-ink-${n}`, stroke, width, passes: [] };
+        cutOf.set(layer, cut);
+      } else {
+        layer = metal
+          ? { label: `${n} division ${p.division + 1}`, id: `layer-division-${n}`, stroke, width, passes: [] }
+          : { label: `${n} ${stroke}`, id: `layer-ink-${n}`, stroke, width, passes: [] };
+      }
       byKey.set(key, layer);
       layers.push(layer);
     }
     layer.passes.push(p);
   }
-  // A single-division metal recipe reads better as one "engraving" layer.
-  if (metal && layers.length === 1) layers[0].label = '1 engraving';
+  if (metal && !layered) {
+    // A single-division metal recipe reads better as one "engraving" layer.
+    if (layers.length === 1) layers[0].label = '1 engraving';
+  } else if (metal) {
+    // A cut with one division is just "Cut k".
+    layers.forEach((l, k) => {
+      const c = cutOf.get(l)!;
+      if (layers.filter((x) => cutOf.get(x) === c).length === 1) l.label = `${k + 1} Cut ${c + 1}`;
+    });
+  }
 
   const name = recipe.name || 'Rose engine';
   const out: string[] = [];
@@ -241,13 +265,12 @@ export function buildSVG(recipe: Recipe, toolpath: Toolpath, opts: SvgOptions): 
     );
   }
 
-  const sw = fmt3(strokeWidth);
   const opacity = metal ? 1 : Math.min(1, Math.max(0, recipe.ink.opacity));
   const opacityAttr = opacity < 1 ? ` stroke-opacity="${fmt3(opacity)}"` : '';
   for (const layer of layers) {
     out.push(
       `<g inkscape:groupmode="layer" inkscape:label="${xmlEscape(layer.label)}" id="${layer.id}" fill="none" ` +
-        `stroke="${xmlEscape(layer.stroke)}" stroke-width="${sw}"${opacityAttr} stroke-linecap="round" stroke-linejoin="round">`,
+        `stroke="${xmlEscape(layer.stroke)}" stroke-width="${fmt3(layer.width)}"${opacityAttr} stroke-linecap="round" stroke-linejoin="round">`,
     );
     for (const p of layer.passes) {
       for (const st of strokesOf.get(p) ?? []) {
